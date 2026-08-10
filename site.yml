@@ -1,0 +1,12 @@
+---
+- name: Apply common configuration to the whole fleet
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Apply GitLab-specific configuration
+  hosts: gitlab.beamline
+  become: true
+  roles:
+    - gitlab

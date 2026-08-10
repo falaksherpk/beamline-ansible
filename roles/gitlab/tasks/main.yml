@@ -1,0 +1,6 @@
+---
+- name: Allow HTTP through the firewall for GitLab
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
