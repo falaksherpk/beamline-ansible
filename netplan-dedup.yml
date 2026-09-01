@@ -1,0 +1,8 @@
+---
+- name: Deduplicate netplan / fix wait-online 120s timeout
+  hosts: all
+  become: true
+  gather_facts: false
+  serial: 1
+  roles:
+    - netplan-dedup

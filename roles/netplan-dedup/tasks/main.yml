@@ -1,0 +1,36 @@
+---
+- name: Disable cloud-init network management (prevents 50- regeneration)
+  copy:
+    dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    content: "network: {config: disabled}\n"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Remove cloud-init's conflicting default netplan file
+  file:
+    path: /etc/netplan/50-cloud-init.yaml
+    state: absent
+  register: removed_default
+
+- name: Regenerate networkd config from the remaining netplan
+  command: netplan generate
+  when: removed_default.changed
+
+- name: SAFETY GATE - check no phantom enp1s0 profile remains in /run
+  find:
+    paths: /run/systemd/network/
+    patterns: '*enp1s0*'
+  register: phantom
+  when: removed_default.changed
+
+- name: Abort before apply if the phantom profile survived
+  assert:
+    that: phantom.matched == 0
+    fail_msg: "enp1s0 profile still in /run - NOT applying. Investigate manually."
+    success_msg: "Clean: no enp1s0 profile. Safe to apply."
+  when: removed_default.changed
+
+- name: Apply netplan (only after the gate passed)
+  command: netplan apply
+  when: removed_default.changed
