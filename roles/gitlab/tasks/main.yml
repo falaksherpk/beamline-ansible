@@ -4,3 +4,64 @@
     rule: allow
     port: "80"
     proto: tcp
+
+- name: Allow HTTPS through the firewall for GitLab
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Allow the container registry through the firewall
+  community.general.ufw:
+    rule: allow
+    port: "5050"
+    proto: tcp
+
+- name: Add the official GitLab Runner apt repository (idempotent)
+  ansible.builtin.shell: |
+    curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash
+  args:
+    creates: /etc/apt/sources.list.d/runner_gitlab-runner.list
+
+- name: Install gitlab-runner
+  ansible.builtin.apt:
+    name: gitlab-runner
+    state: present
+    update_cache: true
+
+- name: Install Docker (dedicated container engine for the CI runner's docker executor)
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+    update_cache: true
+
+- name: Ensure Docker is running and enabled
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Add gitlab-runner to the docker group (convenience for interactive troubleshooting; the service itself runs as root)
+  ansible.builtin.user:
+    name: gitlab-runner
+    groups: docker
+    append: true
+  notify: Restart gitlab-runner
+
+- name: Disable Podman's socket (no longer used now that the runner uses real Docker)
+  ansible.builtin.systemd:
+    name: podman.socket
+    state: stopped
+    enabled: false
+
+- name: Remove Podman (was only installed for the CI runner, now superseded by Docker)
+  ansible.builtin.apt:
+    name: podman
+    state: absent
+
+- name: Remove the stale Podman socket line from the runner's docker config (superseded by real Docker)
+  ansible.builtin.lineinfile:
+    path: /etc/gitlab-runner/config.toml
+    regexp: '^\s*host = "unix:///run/podman/podman.sock"$'
+    state: absent
+  notify: Restart gitlab-runner

@@ -1,2 +1,10 @@
 ---
 # handlers file for gitlab
+
+- name: Update CA certificates
+  ansible.builtin.command: update-ca-certificates
+
+- name: Restart gitlab-runner
+  ansible.builtin.systemd:
+    name: gitlab-runner
+    state: restarted
