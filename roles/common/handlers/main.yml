@@ -1,2 +1,5 @@
 ---
 # handlers file for common
+
+- name: Update CA certificates
+  ansible.builtin.command: update-ca-certificates
