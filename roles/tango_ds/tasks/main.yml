@@ -40,6 +40,12 @@
       - pyvisa-sim
     extra_args: --break-system-packages
 
+- name: Ensure ruff is installed for TANGO device-server linting
+  ansible.builtin.pip:
+    name:
+      - ruff==0.16.5
+    extra_args: --break-system-packages
+
 - name: Set TANGO_HOST in /etc/environment so device servers/clients can find the DB
   ansible.builtin.lineinfile:
     path: /etc/environment
