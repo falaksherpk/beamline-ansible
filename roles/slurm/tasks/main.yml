@@ -1,0 +1,89 @@
+---
+- name: Create munge group with fixed GID
+  ansible.builtin.group:
+    name: munge
+    gid: 981
+
+- name: Create munge user with fixed UID
+  ansible.builtin.user:
+    name: munge
+    uid: 981
+    group: munge
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Create slurm group with fixed GID
+  ansible.builtin.group:
+    name: slurm
+    gid: 982
+
+- name: Create slurm user with fixed UID
+  ansible.builtin.user:
+    name: slurm
+    uid: 982
+    group: slurm
+    shell: /usr/sbin/nologin
+    system: true
+
+- name: Install packages common to every HPC node
+  ansible.builtin.apt:
+    name:
+      - munge
+      - slurm-client
+    state: present
+    update_cache: true
+
+- name: Install controller-only packages (slurmctld, accounting backend)
+  ansible.builtin.apt:
+    name:
+      - slurmctld
+      - slurmdbd
+      - default-mysql-server
+      - slurm-wlm-mysql-plugin
+    state: present
+  when: inventory_hostname in groups['hpc_controller']
+
+- name: Install compute-node-only package (slurmd)
+  ansible.builtin.apt:
+    name: slurmd
+    state: present
+  when: inventory_hostname in groups['hpc_compute']
+
+- name: Ensure slurmctld's state save directory exists
+  ansible.builtin.file:
+    path: /var/spool/slurmctld
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_controller']
+
+- name: Ensure slurmd's spool directory exists
+  ansible.builtin.file:
+    path: /var/spool/slurmd
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_compute']
+
+- name: Allow slurmctld's port through the firewall (controller only)
+  community.general.ufw:
+    rule: allow
+    port: "6817"
+    proto: tcp
+  when: inventory_hostname in groups['hpc_controller']
+
+- name: Allow slurmd's port through the firewall (compute nodes only)
+  community.general.ufw:
+    rule: allow
+    port: "6818"
+    proto: tcp
+  when: inventory_hostname in groups['hpc_compute']
+
+- name: Allow srun's callback port range through the firewall (controller/submit host only)
+  community.general.ufw:
+    rule: allow
+    port: "60001:60100"
+    proto: tcp
+  when: inventory_hostname in groups['hpc_controller']

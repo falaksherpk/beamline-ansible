@@ -10,3 +10,20 @@
   become: true
   roles:
     - gitlab
+
+- name: Apply HPC/SLURM-specific configuration
+  hosts: hpc
+  become: true
+  roles:
+    - slurm
+- name: Apply Tango Database configuration
+  hosts: tango_db
+  become: true
+  roles:
+    - tango_db
+
+- name: Apply Tango device-server configuration
+  hosts: tango_ds
+  become: true
+  roles:
+    - tango_ds

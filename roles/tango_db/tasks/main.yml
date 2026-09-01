@@ -1,0 +1,29 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for tango_db
+#
+# This host runs ONLY the Tango Database (device registry) + its MySQL
+# backend. Device servers, PyTango, and protocol simulators all live on
+# tango-ds.beamline instead (see roles/tango_ds) -- see
+# TANGO_Handson_Handbook_Plan.md Part 0 for why the split matters.
+
+- name: Ensure the Tango Database and common Tango packages are installed
+  ansible.builtin.apt:
+    name:
+      - tango-db
+      - tango-common
+      - mariadb-server
+    state: present
+    update_cache: true
+
+- name: Ensure the tango-db service is running and enabled
+  ansible.builtin.systemd:
+    name: tango-db
+    state: started
+    enabled: true
+
+- name: Allow the Tango Database port through the firewall
+  community.general.ufw:
+    rule: allow
+    port: "10000"
+    proto: tcp
