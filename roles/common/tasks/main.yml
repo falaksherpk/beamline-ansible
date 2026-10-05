@@ -62,3 +62,4 @@
     dest: /usr/local/share/ca-certificates/beamline-ca.crt
     mode: '0644'
   notify: Update CA certificates
+  tags: [ca_trust]

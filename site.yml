@@ -2,28 +2,34 @@
 - name: Apply common configuration to the whole fleet
   hosts: all
   become: true
+  tags: [common]
   roles:
     - common
 
 - name: Apply GitLab-specific configuration
   hosts: gitlab.beamline
   become: true
+  tags: [gitlab]
   roles:
     - gitlab
 
 - name: Apply HPC/SLURM-specific configuration
   hosts: hpc
   become: true
+  tags: [slurm]
   roles:
     - slurm
+
 - name: Apply Tango Database configuration
   hosts: tango_db
   become: true
+  tags: [tango_db]
   roles:
     - tango_db
 
 - name: Apply Tango device-server configuration
   hosts: tango_ds
   become: true
+  tags: [tango_ds]
   roles:
     - tango_ds
