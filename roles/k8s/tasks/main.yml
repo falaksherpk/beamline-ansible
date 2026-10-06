@@ -1,0 +1,63 @@
+---
+# Chapter 13 — Kubernetes nodes (k8cp, k8w1, k8w2).
+# Fact-free by design: plays run with narrow --tags skip fact gathering
+# (Ch12 finding), so no task here may depend on ansible_facts.
+
+- name: Enable IPv4 forwarding (the Kubernetes 1.36 runtime prerequisite)
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    sysctl_set: true
+    reload: true
+    state: present
+  tags: [k8s_prereq]
+
+- name: Install containerd (Ubuntu package; pulls in runc)
+  ansible.builtin.apt:
+    name: containerd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [k8s_containerd]
+
+- name: Ensure containerd's drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/containerd/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [k8s_containerd]
+
+- name: Write a minimal containerd main config that activates conf.d drop-ins
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
+      # containerd only resolves the imports listed in a config file it
+      # actually loads; the default shown by `containerd config dump` is
+      # never acted on by itself (Chapter 13 finding). Settings go in conf.d.
+      version = 3
+      imports = ["/etc/containerd/conf.d/*.toml"]
+  notify: Restart containerd
+  tags: [k8s_containerd]
+
+- name: Use the systemd cgroup driver for runc (the only change from the defaults)
+  ansible.builtin.copy:
+    dest: /etc/containerd/conf.d/10-kubernetes.toml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
+      # Imported by /etc/containerd/config.toml.
+      version = 3
+
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+        SystemdCgroup = true
+  notify: Restart containerd
+  tags: [k8s_containerd]

@@ -40,3 +40,10 @@
   tags: [pkg]
   roles:
     - pkg
+
+- name: Apply Kubernetes node configuration
+  hosts: kubernetes
+  become: true
+  tags: [k8s]
+  roles:
+    - k8s
