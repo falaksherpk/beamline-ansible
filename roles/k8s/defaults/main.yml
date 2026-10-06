@@ -4,3 +4,7 @@
 # An upgrade changes both, and needs the held packages released deliberately.
 k8s_minor: "1.36"
 k8s_package_version: "1.36.5-1.1"
+
+# Source network for every Kubernetes firewall rule: nothing here serves
+# clients outside the lab network (beamlinenet).
+k8s_lab_subnet: "10.10.10.0/24"

@@ -95,3 +95,28 @@
     selection: hold
   loop: [kubeadm, kubelet, kubectl]
   tags: [k8s_packages]
+
+- name: Allow Kubernetes node traffic from the lab subnet only (all nodes)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ k8s_lab_subnet }}"
+    comment: "{{ item.comment }}"
+  loop:
+    - { port: "10250", proto: tcp, comment: "k8s kubelet API" }
+    - { port: "4789", proto: udp, comment: "Calico VXLAN" }
+    - { port: "5473", proto: tcp, comment: "Calico Typha" }
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+  tags: [k8s_firewall]
+
+- name: Allow the Kubernetes API server from the lab subnet only (control plane)
+  community.general.ufw:
+    rule: allow
+    port: "6443"
+    proto: tcp
+    from_ip: "{{ k8s_lab_subnet }}"
+    comment: "k8s API server"
+  when: "'k8s_control' in group_names"
+  tags: [k8s_firewall]
