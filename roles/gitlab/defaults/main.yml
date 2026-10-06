@@ -1,2 +1,7 @@
 ---
 # defaults file for gitlab
+
+# Must match GitLab's own version (GitLab CE 19.4.1, Part 2 Ch10).
+# gitlab-runner and gitlab-runner-helper-images must be installed at exactly
+# the same version (a hard package dependency since runner 17.7).
+gitlab_runner_version: "19.4.1-1"

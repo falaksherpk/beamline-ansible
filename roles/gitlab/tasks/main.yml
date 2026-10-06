@@ -22,19 +22,32 @@
 
 - name: Add the official GitLab Runner apt repository (idempotent)
   ansible.builtin.shell: |
-    curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash
+    set -o pipefail
+    curl -fsSL "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash
   args:
+    executable: /bin/bash
     creates: /etc/apt/sources.list.d/runner_gitlab-runner.list
   tags: [gitlab_runner]
 
-- name: Install gitlab-runner
+- name: Install gitlab-runner and its helper images, pinned to GitLab's version
   ansible.builtin.apt:
-    name: gitlab-runner
+    name:
+      - "gitlab-runner={{ gitlab_runner_version }}"
+      - "gitlab-runner-helper-images={{ gitlab_runner_version }}"
     state: present
     update_cache: true
   tags: [gitlab_runner]
 
-- name: Install Docker (dedicated container engine for the CI runner's docker executor)
+- name: Hold the runner packages at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - gitlab-runner
+    - gitlab-runner-helper-images
+  tags: [gitlab_runner]
+
+- name: Install Docker (container engine for the runner's docker executor)
   ansible.builtin.apt:
     name: docker.io
     state: present
@@ -42,37 +55,8 @@
   tags: [gitlab_docker]
 
 - name: Ensure Docker is running and enabled
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
     name: docker
     state: started
     enabled: true
   tags: [gitlab_docker]
-
-- name: Add gitlab-runner to the docker group (convenience for interactive troubleshooting; the service itself runs as root)
-  ansible.builtin.user:
-    name: gitlab-runner
-    groups: docker
-    append: true
-  notify: Restart gitlab-runner
-  tags: [gitlab_docker]
-
-- name: Disable Podman's socket (no longer used now that the runner uses real Docker)
-  ansible.builtin.systemd:
-    name: podman.socket
-    state: stopped
-    enabled: false
-  tags: [gitlab_podman_cleanup]
-
-- name: Remove Podman (was only installed for the CI runner, now superseded by Docker)
-  ansible.builtin.apt:
-    name: podman
-    state: absent
-  tags: [gitlab_podman_cleanup]
-
-- name: Remove the stale Podman socket line from the runner's docker config (superseded by real Docker)
-  ansible.builtin.lineinfile:
-    path: /etc/gitlab-runner/config.toml
-    regexp: '^\s*host = "unix:///run/podman/podman.sock"$'
-    state: absent
-  notify: Restart gitlab-runner
-  tags: [gitlab_podman_cleanup]
