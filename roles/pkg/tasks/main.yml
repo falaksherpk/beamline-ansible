@@ -1,0 +1,7 @@
+---
+- name: Install Podman (daemonless, rootless-capable OCI engine; pulls in crun, uidmap, buildah)
+  ansible.builtin.apt:
+    name: podman
+    state: present
+    update_cache: true
+  tags: [pkg_podman]

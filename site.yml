@@ -33,3 +33,10 @@
   tags: [tango_ds]
   roles:
     - tango_ds
+
+- name: Apply package-host configuration
+  hosts: pkg.beamline
+  become: true
+  tags: [pkg]
+  roles:
+    - pkg
