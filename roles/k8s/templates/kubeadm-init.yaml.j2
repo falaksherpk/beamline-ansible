@@ -1,0 +1,21 @@
+# Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
+# Used once, by hand: sudo kubeadm init --config /etc/kubernetes/kubeadm-init.yaml
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ k8s_api_advertise_address }}"
+  bindPort: 6443
+nodeRegistration:
+  criSocket: unix:///run/containerd/containerd.sock
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: "v{{ k8s_package_version.split('-') | first }}"
+controlPlaneEndpoint: "{{ k8s_control_plane_endpoint }}"
+networking:
+  podSubnet: "{{ k8s_pod_subnet }}"
+  serviceSubnet: "{{ k8s_service_subnet }}"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd

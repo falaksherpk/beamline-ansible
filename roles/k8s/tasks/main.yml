@@ -114,3 +114,13 @@
     comment: "k8s API server"
   when: "'k8s_control' in group_names"
   tags: [k8s_firewall]
+
+- name: Render the kubeadm init configuration (control plane; kubeadm init itself is run by hand)
+  ansible.builtin.template:
+    src: kubeadm-init.yaml.j2
+    dest: /etc/kubernetes/kubeadm-init.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  when: "'k8s_control' in group_names"
+  tags: [k8s_kubeadm_config]

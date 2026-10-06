@@ -12,3 +12,11 @@ k8s_lab_subnet: "10.10.10.0/24"
 # Pod sandbox image for containerd; must match `kubeadm config images list`
 # for k8s_package_version (1.36.5 -> pause:3.10.2). Change both together.
 k8s_pause_image: "registry.k8s.io/pause:3.10.2"
+
+# kubeadm init configuration (rendered on the control plane; Chapter 13).
+# Pod subnet chosen not to overlap beamlinenet (10.10.10.0/24), the home LAN
+# (192.168.100.0/24) or libvirt's default (192.168.122.0/24).
+k8s_api_advertise_address: "10.10.10.21"
+k8s_control_plane_endpoint: "k8cp.beamline:6443"
+k8s_pod_subnet: "10.244.0.0/16"
+k8s_service_subnet: "10.96.0.0/12"
