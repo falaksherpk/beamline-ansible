@@ -8,3 +8,7 @@ k8s_package_version: "1.36.5-1.1"
 # Source network for every Kubernetes firewall rule: nothing here serves
 # clients outside the lab network (beamlinenet).
 k8s_lab_subnet: "10.10.10.0/24"
+
+# Pod sandbox image for containerd; must match `kubeadm config images list`
+# for k8s_package_version (1.36.5 -> pause:3.10.2). Change both together.
+k8s_pause_image: "registry.k8s.io/pause:3.10.2"

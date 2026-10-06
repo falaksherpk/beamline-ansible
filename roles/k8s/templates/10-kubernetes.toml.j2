@@ -1,0 +1,9 @@
+# Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
+# Imported by /etc/containerd/config.toml.
+version = 3
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  SystemdCgroup = true
+
+[plugins.'io.containerd.cri.v1.images'.pinned_images]
+  sandbox = '{{ k8s_pause_image }}'

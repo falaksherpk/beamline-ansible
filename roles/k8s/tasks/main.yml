@@ -46,19 +46,13 @@
   notify: Restart containerd
   tags: [k8s_containerd]
 
-- name: Use the systemd cgroup driver for runc (the only change from the defaults)
-  ansible.builtin.copy:
+- name: Configure containerd for Kubernetes (systemd cgroups, kubeadm's pause image)
+  ansible.builtin.template:
+    src: 10-kubernetes.toml.j2
     dest: /etc/containerd/conf.d/10-kubernetes.toml
     owner: root
     group: root
     mode: "0644"
-    content: |
-      # Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
-      # Imported by /etc/containerd/config.toml.
-      version = 3
-
-      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
-        SystemdCgroup = true
   notify: Restart containerd
   tags: [k8s_containerd]
 
