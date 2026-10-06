@@ -1,2 +1,6 @@
 ---
-# defaults file for k8s
+# The minor version selects the pkgs.k8s.io repository (one repo per minor);
+# the package version pins kubeadm, kubelet and kubectl exactly (Ch13 LAB 13.1).
+# An upgrade changes both, and needs the held packages released deliberately.
+k8s_minor: "1.36"
+k8s_package_version: "1.36.5-1.1"

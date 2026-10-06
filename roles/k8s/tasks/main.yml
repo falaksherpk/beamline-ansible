@@ -61,3 +61,37 @@
         SystemdCgroup = true
   notify: Restart containerd
   tags: [k8s_containerd]
+
+- name: Add the Kubernetes apt repository for the chosen minor (pkgs.k8s.io)
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: [deb]
+    uris: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/"
+    suites: ["/"]
+    signed_by: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/Release.key"
+    state: present
+  register: k8s_repo
+  tags: [k8s_packages]
+
+- name: Refresh the apt cache when the repository was added or changed
+  ansible.builtin.apt:
+    update_cache: true
+  when: k8s_repo is changed
+  tags: [k8s_packages]
+
+- name: Install kubeadm, kubelet and kubectl at the pinned version, plus cri-tools
+  ansible.builtin.apt:
+    name:
+      - "kubeadm={{ k8s_package_version }}"
+      - "kubelet={{ k8s_package_version }}"
+      - "kubectl={{ k8s_package_version }}"
+      - cri-tools
+    state: present
+  tags: [k8s_packages]
+
+- name: Hold kubeadm, kubelet and kubectl so apt never upgrades them implicitly
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [kubeadm, kubelet, kubectl]
+  tags: [k8s_packages]
