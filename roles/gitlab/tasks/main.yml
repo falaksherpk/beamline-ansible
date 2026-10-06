@@ -47,9 +47,11 @@
     - gitlab-runner-helper-images
   tags: [gitlab_runner]
 
-- name: Install Docker (container engine for the runner's docker executor)
+- name: Install Docker and BuildKit's buildx (container engine for the runner's docker executor)
   ansible.builtin.apt:
-    name: docker.io
+    name:
+      - docker.io
+      - docker-buildx
     state: present
     update_cache: true
   tags: [gitlab_docker]
