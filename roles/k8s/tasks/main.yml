@@ -124,3 +124,15 @@
     mode: "0644"
   when: "'k8s_control' in group_names"
   tags: [k8s_kubeadm_config]
+
+- name: Point crictl at containerd (no endpoint warning, no --runtime-endpoint flag)
+  ansible.builtin.copy:
+    dest: /etc/crictl.yaml
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (beamline-ansible, role k8s, Chapter 13).
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+  tags: [k8s_packages]
