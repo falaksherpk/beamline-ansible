@@ -90,6 +90,10 @@
   loop: [kubeadm, kubelet, kubectl]
   tags: [k8s_packages]
 
+# No ufw rule for NodePorts (Chapter 14): kube-proxy DNATs NodePort traffic in
+# PREROUTING, so it is forwarded (Calico and kube-proxy chains run ahead of ufw's)
+# and never reaches INPUT, where a ufw allow/deny would apply. NodePorts are
+# restricted by kube-proxy's nodePortAddresses instead (kubeadm-init.yaml.j2).
 - name: Allow Kubernetes node traffic from the lab subnet only (all nodes)
   community.general.ufw:
     rule: allow

@@ -19,3 +19,11 @@ networking:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
+---
+# NodePorts only on lab-network addresses (Chapter 14). With the default
+# (null) kube-proxy serves them on every local address, incl. nat0 and
+# 127.0.0.0/8; ufw can't filter them (see the firewall task's comment).
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+nodePortAddresses:
+  - "{{ k8s_lab_subnet }}"
