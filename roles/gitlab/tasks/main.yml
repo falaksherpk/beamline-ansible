@@ -62,3 +62,17 @@
     state: started
     enabled: true
   tags: [gitlab_docker]
+
+- name: Trust the lab CA for GitLab's own outbound HTTPS (webhooks; Chapter 14)
+  # GitLab's embedded OpenSSL ignores the system store that `common` fills;
+  # Omnibus reads extra CAs from /etc/gitlab/trusted-certs on reconfigure.
+  # Copied from the system store (single source: roles/common/files/beamline-ca.crt).
+  ansible.builtin.copy:
+    src: /usr/local/share/ca-certificates/beamline-ca.crt
+    remote_src: true
+    dest: /etc/gitlab/trusted-certs/beamline-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reconfigure GitLab
+  tags: [gitlab_trusted_certs]
