@@ -15,3 +15,33 @@
     install_recommends: false
     update_cache: true
   tags: [pkg_build]
+
+- name: Create the cache directory for verified package downloads (Ch15)
+  ansible.builtin.file:
+    path: /var/cache/beamline-pkg
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [pkg_build]
+
+- name: Download the Apptainer .deb (non-setuid); refused unless its SHA-256 matches (Ch15)
+  ansible.builtin.get_url:
+    url: "https://github.com/apptainer/apptainer/releases/download/v{{ pkg_apptainer_version }}/apptainer_{{ pkg_apptainer_version }}_amd64.deb"
+    dest: "/var/cache/beamline-pkg/apptainer_{{ pkg_apptainer_version }}_amd64.deb"
+    checksum: "sha256:{{ pkg_apptainer_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  # In check mode the directory above is only simulated, so get_url cannot place the file.
+  # Real runs still fail hard (missing directory, failed download, checksum mismatch).
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [pkg_build]
+
+- name: Install Apptainer from the verified .deb (its postinst loads the AppArmor profile for the starter)
+  ansible.builtin.apt:
+    deb: "/var/cache/beamline-pkg/apptainer_{{ pkg_apptainer_version }}_amd64.deb"
+    state: present
+  # In check mode the download above is only simulated, so this file does not exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [pkg_build]

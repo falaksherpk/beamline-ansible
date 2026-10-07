@@ -1,2 +1,7 @@
 ---
 # defaults file for pkg
+
+# Apptainer (Ch15): non-setuid release .deb from GitHub, pinned by version and SHA-256.
+# Upgrade = change both values (digest from the release's asset listing).
+pkg_apptainer_version: "1.5.4"
+pkg_apptainer_sha256: "281cf9bd68f16b6f7c34a3a94d77668bc327b9c09db0412ce7890162734a97f7"
