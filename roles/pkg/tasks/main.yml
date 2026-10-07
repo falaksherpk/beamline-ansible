@@ -5,3 +5,13 @@
     state: present
     update_cache: true
   tags: [pkg_podman]
+
+- name: Install the Python build toolchain (wheel via python -m build, isolated venvs; Ch15)
+  ansible.builtin.apt:
+    name:
+      - python3-build
+      - python3-venv
+    state: present
+    install_recommends: false
+    update_cache: true
+  tags: [pkg_build]
