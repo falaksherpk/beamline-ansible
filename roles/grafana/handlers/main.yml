@@ -3,3 +3,9 @@
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
+
+# Grafana does not reread grafana.ini on SIGHUP; configuration changes need a restart.
+- name: Restart grafana-server
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    state: restarted

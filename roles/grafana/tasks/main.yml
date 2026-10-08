@@ -45,3 +45,97 @@
   # In check mode the install above is only simulated, so dpkg does not know the package yet.
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [grafana]
+
+- name: Create the TLS directory for Grafana (owner and mode as the package's postinst sets them)
+  ansible.builtin.file:
+    path: /etc/grafana/tls
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0755"
+  tags: [grafana]
+
+- name: Install the lab-CA certificate for Grafana
+  ansible.builtin.copy:
+    src: "{{ grafana_tls_src_dir }}/{{ grafana_domain }}.crt"
+    dest: "/etc/grafana/tls/{{ grafana_domain }}.crt"
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Install Grafana's private key (from the controller, never from Git)
+  ansible.builtin.copy:
+    src: "{{ grafana_tls_src_dir }}/{{ grafana_domain }}.key"
+    dest: "/etc/grafana/tls/{{ grafana_domain }}.key"
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  diff: false
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Generate Grafana's secret_key once, on the host (never shown, never in Git)
+  ansible.builtin.shell: umask 0027 && openssl rand -base64 48 > /etc/grafana/secret_key && chown root:grafana /etc/grafana/secret_key
+  args:
+    creates: /etc/grafana/secret_key
+  tags: [grafana]
+
+- name: Read the admin password file's metadata (written by hand from a hidden prompt)
+  ansible.builtin.stat:
+    path: /etc/grafana/admin_password
+  register: grafana_admin_password
+  tags: [grafana]
+
+- name: Refuse to go on without the admin password file (Grafana sets it once, on its first start)
+  ansible.builtin.assert:
+    that:
+      - grafana_admin_password.stat.exists
+      - grafana_admin_password.stat.isreg
+      - grafana_admin_password.stat.pw_name == 'root'
+      - grafana_admin_password.stat.gr_name == 'grafana'
+      - grafana_admin_password.stat.mode == '0640'
+      - grafana_admin_password.stat.size > 0
+    fail_msg: >-
+      /etc/grafana/admin_password must exist, root:grafana, mode 0640, non-empty.
+      Write it from a hidden prompt (handbook Ch16) before running this role.
+    quiet: true
+  tags: [grafana]
+
+- name: Install grafana.ini (HTTPS on the lab address, secrets read from files)
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Provision the Prometheus datasource
+  ansible.builtin.template:
+    src: datasource-prometheus.yaml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yaml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Allow the Grafana UI from beamlinehost only
+  community.general.ufw:
+    rule: allow
+    port: "{{ grafana_port }}"
+    proto: tcp
+    from_ip: "{{ grafana_ui_allowed_from }}"
+    comment: "Grafana UI, from beamlinehost (Ch16)"
+  tags: [grafana]
+
+- name: Keep Grafana enabled and running (its first start, with everything above in place)
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    enabled: true
+    state: started
+  tags: [grafana]

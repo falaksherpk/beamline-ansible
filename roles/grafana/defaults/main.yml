@@ -9,3 +9,14 @@ grafana_apt_suite: stable
 # B53AE77BADB630A683046005963FA27710458545 (expires 2027-08-22), checked against
 # keyserver.ubuntu.com. Not gpg-full.key, which adds two keys this repository does
 # not sign with (one expired, one RSA-2048 without expiry).
+
+# The server: HTTPS on the lab address with a lab-CA certificate, reachable only from
+# beamlinehost (the operator's browser).
+grafana_listen_address: "{{ ansible_host }}"
+grafana_port: 3000
+grafana_domain: "{{ inventory_hostname }}"
+# Certificate and key are read on the controller (admin.beamline), outside Git.
+grafana_tls_src_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca"
+grafana_ui_allowed_from: "10.10.10.1"
+# Prometheus on the same host, loopback only (role prometheus).
+grafana_prometheus_url: "http://127.0.0.1:9090"
