@@ -170,3 +170,12 @@
     group: "{{ pkg_web_owner }}"
     mode: "0644"
   tags: [pkg_apt_repo]
+
+- name: Install the publish script (deb into reprepro, conda into the channel; run as the owner)
+  ansible.builtin.template:
+    src: beamline-publish.j2
+    dest: /usr/local/bin/beamline-publish
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [pkg_publish]

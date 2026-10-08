@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Managed by Ansible (beamline-ansible, role pkg) - do not edit on the host.
+# Publish a built package into the internal repository on this host (handbook Ch15).
+#   beamline-publish deb   FILE.deb     -> signed apt repository (reprepro)
+#   beamline-publish conda FILE.conda   -> conda channel, noarch only (rattler-index)
+# Runs as the repository owner, never as root. Never overwrites a published package.
+set -euo pipefail
+
+owner={{ pkg_web_owner }}
+apt_basedir={{ pkg_apt_repo_basedir }}
+apt_codename={{ pkg_apt_repo_codename }}
+conda_channel={{ pkg_web_root }}/conda
+indexer_image={{ pkg_conda_indexer_image }}
+indexer_spec='{{ pkg_conda_indexer_spec }}'
+
+die() { echo "beamline-publish: $*" >&2; exit 1; }
+
+[[ $(id -un) == "$owner" ]] || die "run as $owner, not $(id -un)"
+(( $# == 2 )) || die "usage: beamline-publish deb FILE.deb | beamline-publish conda FILE.conda"
+kind=$1
+file=$2
+[[ -f $file ]] || die "no such file: $file"
+
+case $kind in
+  deb)
+    [[ $file == *.deb ]] || die "not a .deb: $file"
+    name=$(dpkg-deb -f "$file" Package)
+    version=$(dpkg-deb -f "$file" Version)
+    if reprepro -b "$apt_basedir" list "$apt_codename" "$name" | grep -q " $version\$"; then
+      die "$name $version is already published"
+    fi
+    reprepro -b "$apt_basedir" includedeb "$apt_codename" "$file"
+    reprepro -b "$apt_basedir" list "$apt_codename" "$name"
+    ;;
+  conda)
+    [[ $file == *.conda ]] || die "not a .conda: $file"
+    base=$(basename "$file")
+    dest=$conda_channel/noarch/$base
+    [[ ! -e $dest ]] || die "already published: $dest"
+    install -m 0644 "$file" "$dest"
+    # The indexer runs in a throwaway container from a pinned image, with a pinned
+    # rattler-index build. If indexing fails, the package is taken out again so the
+    # channel never holds an unindexed file.
+    if ! podman run --rm -v "$conda_channel:/channel" "$indexer_image" bash -c \
+        "conda create -q -y -p /opt/idx --override-channels -c conda-forge '$indexer_spec' >/dev/null && /opt/idx/bin/rattler-index -q fs /channel"; then
+      rm -f "$dest"
+      die "indexing failed; $base removed again"
+    fi
+    python3 - "$conda_channel/noarch/repodata.json" "$base" <<'PY' || { rm -f "$dest"; die "$base not in noarch/repodata.json after indexing; removed again"; }
+import json, sys
+index = json.load(open(sys.argv[1]))
+if sys.argv[2] not in index.get("packages.conda", {}):
+    sys.exit(1)
+print("indexed in noarch:", sys.argv[2])
+PY
+    ;;
+  *)
+    die "unknown kind '$kind' (deb or conda)"
+    ;;
+esac

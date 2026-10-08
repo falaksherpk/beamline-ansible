@@ -22,3 +22,8 @@ pkg_apt_repo_basedir: "/home/{{ pkg_web_owner }}/reprepro"
 pkg_apt_repo_outdir: "{{ pkg_web_root }}/apt"
 pkg_apt_repo_codename: noble
 pkg_apt_repo_signing_key: ECEE314121F9A4EA1CB1A2621AC8A9930C437FCF
+
+# Publishing (Ch15): /usr/local/bin/beamline-publish. The conda channel is indexed
+# by a pinned rattler-index build in a throwaway container from a pinned image.
+pkg_conda_indexer_image: docker.io/condaforge/miniforge3@sha256:f752860f77bd417aa4db35be3d2e906fdb740fb80f40755ed651fff9e8873aad
+pkg_conda_indexer_spec: rattler-index==0.33.1=h91e2699_0
