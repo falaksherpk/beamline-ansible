@@ -1,0 +1,11 @@
+---
+# defaults file for prometheus (handbook Ch16)
+
+# Upstream LTS release, pinned by version and the SHA-256 of the linux-amd64 tarball.
+# The hash agreed in three places on 2026-10-08: GitHub's asset digest, the release's
+# sha256sums.txt and prometheus.io/download. Upgrade = change both values.
+prometheus_version: "3.13.4"
+prometheus_sha256: "87f21a66f96c597a189cef8d640e8921b621fc17a9feff707c332c4f3b3ddd56"
+prometheus_install_dir: "/opt/prometheus/{{ prometheus_version }}"
+# Verified downloads, kept outside apt's cache (apt-get clean would empty that).
+prometheus_download_dir: /var/cache/beamline-pkg

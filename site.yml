@@ -13,6 +13,13 @@
   roles:
     - node_exporter
 
+- name: Apply Prometheus server configuration
+  hosts: observability
+  become: true
+  tags: [prometheus]
+  roles:
+    - prometheus
+
 - name: Apply GitLab-specific configuration
   hosts: gitlab.beamline
   become: true
