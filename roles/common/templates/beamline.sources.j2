@@ -1,0 +1,7 @@
+# Managed by Ansible (beamline-ansible, role common) - do not edit on the host.
+# Internal packages from pkg.beamline (handbook Ch15); trusted only with this key.
+Types: deb
+URIs: {{ common_beamline_repo_url }}
+Suites: {{ common_beamline_repo_suite }}
+Components: main
+Signed-By: /etc/apt/keyrings/beamline-apt-repo.asc

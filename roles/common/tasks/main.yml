@@ -63,3 +63,19 @@
     mode: '0644'
   notify: Update CA certificates
   tags: [ca_trust]
+
+- name: Install the internal apt repository's signing key (scoped to that repository by Signed-By)
+  ansible.builtin.copy:
+    src: beamline-apt-repo.asc
+    dest: /etc/apt/keyrings/beamline-apt-repo.asc
+    mode: '0644'
+  notify: Update apt cache
+  tags: [common_beamline_repo]
+
+- name: Add the internal apt repository on pkg.beamline (deb822)
+  ansible.builtin.template:
+    src: beamline.sources.j2
+    dest: /etc/apt/sources.list.d/beamline.sources
+    mode: '0644'
+  notify: Update apt cache
+  tags: [common_beamline_repo]

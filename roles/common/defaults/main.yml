@@ -1,2 +1,7 @@
 ---
 # defaults file for common
+
+# Internal apt repository on pkg.beamline (Ch15). Every host trusts it, so every
+# apt update (and every Ansible apt task with update_cache) now also contacts pkg.
+common_beamline_repo_url: https://pkg.beamline/apt
+common_beamline_repo_suite: noble

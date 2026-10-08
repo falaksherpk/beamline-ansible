@@ -3,3 +3,7 @@
 
 - name: Update CA certificates
   ansible.builtin.command: update-ca-certificates
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
