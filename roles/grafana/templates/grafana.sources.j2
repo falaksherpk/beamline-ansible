@@ -1,0 +1,7 @@
+# Managed by Ansible (beamline-ansible, role grafana) - do not edit on the host.
+# Grafana's own repository (handbook Ch16); trusted only with this key.
+Types: deb
+URIs: {{ grafana_apt_url }}
+Suites: {{ grafana_apt_suite }}
+Components: main
+Signed-By: /etc/apt/keyrings/grafana.asc

@@ -1,0 +1,11 @@
+---
+# defaults file for grafana (handbook Ch16)
+
+# Grafana from its own apt repository, pinned and held. Upgrade = change the version.
+grafana_version: "13.2.3"
+grafana_apt_url: https://apt.grafana.com
+grafana_apt_suite: stable
+# Trusted with files/grafana-apt.asc only: apt.grafana.com/gpg.key, primary
+# B53AE77BADB630A683046005963FA27710458545 (expires 2027-08-22), checked against
+# keyserver.ubuntu.com. Not gpg-full.key, which adds two keys this repository does
+# not sign with (one expired, one RSA-2048 without expiry).

@@ -1,0 +1,47 @@
+---
+# Grafana (handbook Ch16) on obs.beamline, from Grafana's own apt repository, pinned
+# and held. The package does not start Grafana on a fresh install; the first start
+# comes only after its configuration and secrets are in place.
+- name: Install Grafana's repository signing key (scoped to that repository by Signed-By)
+  ansible.builtin.copy:
+    src: grafana-apt.asc
+    dest: /etc/apt/keyrings/grafana.asc
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Update apt cache
+  tags: [grafana]
+
+- name: Add Grafana's apt repository (deb822)
+  ansible.builtin.template:
+    src: grafana.sources.j2
+    dest: /etc/apt/sources.list.d/grafana.sources
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Update apt cache
+  tags: [grafana]
+
+- name: Refresh the package lists now if the repository was just added
+  ansible.builtin.meta: flush_handlers
+  tags: [grafana]
+
+- name: Install the pinned Grafana version (the package does not start it on a fresh install)
+  ansible.builtin.apt:
+    name: "grafana={{ grafana_version }}"
+    state: present
+    install_recommends: false
+    # The package is held (next task); this lets a new grafana_version move it.
+    allow_change_held_packages: true
+  # In check mode the package lists are not really refreshed, so the new repository's
+  # package is unknown there. Real runs still fail hard.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [grafana]
+
+- name: Hold Grafana at the pinned version, so a manual apt upgrade cannot move it
+  ansible.builtin.dpkg_selections:
+    name: grafana
+    selection: hold
+  # In check mode the install above is only simulated, so dpkg does not know the package yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [grafana]

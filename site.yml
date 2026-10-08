@@ -20,6 +20,13 @@
   roles:
     - prometheus
 
+- name: Apply Grafana configuration
+  hosts: observability
+  become: true
+  tags: [grafana]
+  roles:
+    - grafana
+
 - name: Apply GitLab-specific configuration
   hosts: gitlab.beamline
   become: true
