@@ -9,3 +9,48 @@
     install_recommends: false
     update_cache: true
   tags: [node_exporter]
+
+- name: Create the systemd drop-in directory for node_exporter
+  ansible.builtin.file:
+    path: /etc/systemd/system/prometheus-node-exporter.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [node_exporter]
+
+- name: Start node_exporter only once the network is up (it binds to the lab address)
+  ansible.builtin.copy:
+    src: network-online.conf
+    dest: /etc/systemd/system/prometheus-node-exporter.service.d/network-online.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Reload systemd, Restart node_exporter]
+  tags: [node_exporter]
+
+- name: Set node_exporter's arguments (lab address only, explicit textfile directory)
+  ansible.builtin.template:
+    src: prometheus-node-exporter.default.j2
+    dest: /etc/default/prometheus-node-exporter
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart node_exporter
+  tags: [node_exporter]
+
+- name: Keep node_exporter enabled and running
+  ansible.builtin.service:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+  tags: [node_exporter]
+
+- name: Allow node_exporter only from the Prometheus host
+  community.general.ufw:
+    rule: allow
+    port: "{{ node_exporter_port }}"
+    proto: tcp
+    from_ip: "{{ node_exporter_scraper_ip }}"
+    comment: "node_exporter, scraped from obs (Ch16)"
+  tags: [node_exporter]

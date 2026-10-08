@@ -1,0 +1,12 @@
+---
+# handlers file for node_exporter
+# Handlers run in the order defined here: systemd rereads the unit files (the
+# drop-in) before the restart that should use them.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart node_exporter
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter
+    state: restarted

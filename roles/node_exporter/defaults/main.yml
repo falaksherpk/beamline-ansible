@@ -1,0 +1,11 @@
+---
+# defaults file for node_exporter (handbook Ch16)
+
+node_exporter_port: 9100
+# Listen on the lab address only. Every host's ansible_host in the inventory is its
+# lab0 address, so this needs no fact gathering (narrow-tag runs skip facts).
+node_exporter_listen_address: "{{ ansible_host }}:{{ node_exporter_port }}"
+# Only the Prometheus host may scrape: the first host of the inventory group observability.
+node_exporter_scraper_ip: "{{ hostvars[groups['observability'][0]]['ansible_host'] }}"
+# Explicit, so the textfile collector does not depend on Debian's compiled-in default.
+node_exporter_textfile_dir: /var/lib/prometheus/node-exporter
