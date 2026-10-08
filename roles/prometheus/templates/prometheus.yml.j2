@@ -1,0 +1,24 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Validated with promtool before it is installed; changes are applied by a reload.
+global:
+  scrape_interval: {{ prometheus_scrape_interval }}
+  evaluation_interval: {{ prometheus_scrape_interval }}
+
+storage:
+  tsdb:
+    retention:
+      time: {{ prometheus_retention_time }}
+      size: {{ prometheus_retention_size }}
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["{{ prometheus_listen_address }}"]
+
+  # Every host in the Ansible inventory runs node_exporter on its lab address.
+  - job_name: node
+    static_configs:
+      - targets:
+{% for host in groups['all'] | sort %}
+          - "{{ host }}:{{ prometheus_node_exporter_port }}"
+{% endfor %}

@@ -1,0 +1,23 @@
+---
+# handlers file for prometheus
+# Handlers run in the order defined here: systemd rereads the unit before a restart,
+# and a configuration reload comes last. A reload with a broken configuration would
+# not fail (Prometheus keeps the old one and logs), which is why the template task
+# validates with promtool before the file is installed.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus
+    state: restarted
+  # In check mode a unit that is not installed yet is unknown to systemd; real runs still fail hard.
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Reload prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus
+    state: reloaded
+  # In check mode a unit that is not installed yet is unknown to systemd; real runs still fail hard.
+  ignore_errors: "{{ ansible_check_mode }}"

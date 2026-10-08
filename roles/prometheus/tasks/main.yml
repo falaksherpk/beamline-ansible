@@ -55,3 +55,67 @@
   # In check mode the unpacked binaries do not exist yet.
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [prometheus]
+
+- name: Create the Prometheus server's system group
+  ansible.builtin.group:
+    name: "{{ prometheus_user }}"
+    system: true
+  tags: [prometheus]
+
+- name: Create the Prometheus server's system user (no login; not node_exporter's prometheus user)
+  ansible.builtin.user:
+    name: "{{ prometheus_user }}"
+    group: "{{ prometheus_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ prometheus_data_dir }}"
+    create_home: false
+  tags: [prometheus]
+
+- name: Create the TSDB directory, owned by the server user only
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_user }}"
+    mode: "0750"
+  tags: [prometheus]
+
+- name: Create the configuration directory
+  ansible.builtin.file:
+    path: "{{ prometheus_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [prometheus]
+
+- name: Install the configuration, validated by promtool before it is put in place
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/local/bin/promtool check config %s
+  notify: Reload prometheus
+  tags: [prometheus]
+
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Reload systemd, Restart prometheus]
+  tags: [prometheus]
+
+- name: Keep Prometheus enabled and running
+  ansible.builtin.systemd_service:
+    name: prometheus
+    enabled: true
+    state: started
+  # In check mode the unit above is only simulated, so systemd does not know it yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [prometheus]

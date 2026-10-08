@@ -1,0 +1,32 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+[Unit]
+Description=Prometheus monitoring server (handbook Ch16)
+Documentation=https://prometheus.io/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ prometheus_user }}
+Group={{ prometheus_user }}
+ExecStart=/usr/local/bin/prometheus \
+    --config.file={{ prometheus_config_dir }}/prometheus.yml \
+    --storage.tsdb.path={{ prometheus_data_dir }} \
+    --web.listen-address={{ prometheus_listen_address }}
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+
+# Hardening: the TSDB directory is the only writable path.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths={{ prometheus_data_dir }}
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

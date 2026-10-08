@@ -9,3 +9,17 @@ prometheus_sha256: "87f21a66f96c597a189cef8d640e8921b621fc17a9feff707c332c4f3b3d
 prometheus_install_dir: "/opt/prometheus/{{ prometheus_version }}"
 # Verified downloads, kept outside apt's cache (apt-get clean would empty that).
 prometheus_download_dir: /var/cache/beamline-pkg
+
+# The server: its own system user, separate from node_exporter's prometheus user.
+prometheus_user: prometheus-server
+prometheus_data_dir: /var/lib/prometheus-server
+prometheus_config_dir: /etc/prometheus
+# Backend only: Grafana and Alertmanager on this host use localhost; the web UI is
+# reached through an SSH tunnel when needed (ssh -L 9090:localhost:9090 obs.beamline).
+prometheus_listen_address: "127.0.0.1:9090"
+prometheus_scrape_interval: 15s
+# Retention lives in the configuration file: the command-line flags are deprecated in 3.13.
+prometheus_retention_time: 30d
+prometheus_retention_size: 8GB
+# node_exporter runs on every inventory host (role node_exporter) and is scraped by name.
+prometheus_node_exporter_port: 9100
