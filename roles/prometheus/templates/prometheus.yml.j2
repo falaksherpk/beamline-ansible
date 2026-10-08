@@ -10,10 +10,23 @@ storage:
       time: {{ prometheus_retention_time }}
       size: {{ prometheus_retention_size }}
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["{{ prometheus_alertmanager_address }}"]
+
+# Alert rules, each validated by promtool check rules and unit-tested (role tasks).
+rule_files:
+  - {{ prometheus_config_dir }}/rules/*.yml
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["{{ prometheus_listen_address }}"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["{{ prometheus_alertmanager_address }}"]
 
   # Every host in the Ansible inventory runs node_exporter on its lab address.
   - job_name: node

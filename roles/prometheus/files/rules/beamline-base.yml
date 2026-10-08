@@ -1,0 +1,42 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Base alert rules (handbook Ch16), validated by promtool check rules before they are
+# installed, and exercised by tests/beamline-base.test.yml on every converge.
+groups:
+  - name: beamline-base
+    rules:
+      # Always firing. Its presence in Alertmanager proves the whole path
+      # Prometheus -> Alertmanager is alive; its absence means alerting is broken.
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Always firing: proves the Prometheus to Alertmanager path is alive"
+          description: "If this alert is missing from Alertmanager, alerting itself is broken."
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} (job {{ $labels.job }}) for more than 2 minutes."
+
+      - alert: HostDiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10% free on / of {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has {{ $value | humanizePercentage }} of / free."
+
+      - alert: HostMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10% memory available on {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has {{ $value | humanizePercentage }} of its memory available."

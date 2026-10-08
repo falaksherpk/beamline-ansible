@@ -1,0 +1,97 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Unit tests for rules/beamline-base.yml (promtool test rules), run on every converge.
+# Each rule is shown to fire for a synthetic bad series and to stay silent for a good one.
+rule_files:
+  - ../rules/beamline-base.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Watchdog fires from the first evaluation
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: none
+            exp_annotations:
+              summary: "Always firing: proves the Prometheus to Alertmanager path is alive"
+              description: "If this alert is missing from Alertmanager, alerting itself is broken."
+
+  - name: TargetDown fires only after 2 minutes down, only for the down target
+    interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="down.beamline:9100"}'
+        values: '1 0 0 0 0'
+      - series: 'up{job="node", instance="up.beamline:9100"}'
+        values: '1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: down.beamline:9100
+            exp_annotations:
+              summary: "node target down.beamline:9100 is down"
+              description: "Prometheus has not been able to scrape down.beamline:9100 (job node) for more than 2 minutes."
+
+  - name: HostDiskSpaceLow fires for / under 10% after 10 minutes, not for other mounts
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="full.beamline:9100", mountpoint="/"}'
+        values: '50x15'
+      - series: 'node_filesystem_size_bytes{instance="full.beamline:9100", mountpoint="/"}'
+        values: '1000x15'
+      - series: 'node_filesystem_avail_bytes{instance="full.beamline:9100", mountpoint="/boot"}'
+        values: '10x15'
+      - series: 'node_filesystem_size_bytes{instance="full.beamline:9100", mountpoint="/boot"}'
+        values: '1000x15'
+      - series: 'node_filesystem_avail_bytes{instance="fine.beamline:9100", mountpoint="/"}'
+        values: '500x15'
+      - series: 'node_filesystem_size_bytes{instance="fine.beamline:9100", mountpoint="/"}'
+        values: '1000x15'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: HostDiskSpaceLow
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: HostDiskSpaceLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: full.beamline:9100
+              mountpoint: /
+            exp_annotations:
+              summary: "Less than 10% free on / of full.beamline:9100"
+              description: "full.beamline:9100 has 5% of / free."
+
+  - name: HostMemoryLow fires under 10% available after 10 minutes, not above
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{instance="tight.beamline:9100"}'
+        values: '80x15'
+      - series: 'node_memory_MemTotal_bytes{instance="tight.beamline:9100"}'
+        values: '1000x15'
+      - series: 'node_memory_MemAvailable_bytes{instance="roomy.beamline:9100"}'
+        values: '600x15'
+      - series: 'node_memory_MemTotal_bytes{instance="roomy.beamline:9100"}'
+        values: '1000x15'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: HostMemoryLow
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: HostMemoryLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: tight.beamline:9100
+            exp_annotations:
+              summary: "Less than 10% memory available on tight.beamline:9100"
+              description: "tight.beamline:9100 has 8% of its memory available."

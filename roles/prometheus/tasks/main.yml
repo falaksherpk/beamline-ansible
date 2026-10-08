@@ -90,6 +90,46 @@
     mode: "0755"
   tags: [prometheus]
 
+- name: Create the directories for alert rules and their unit tests
+  ansible.builtin.file:
+    path: "{{ prometheus_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: [rules, tests]
+  tags: [prometheus]
+
+- name: Install the alert rules, validated by promtool before they are put in place
+  ansible.builtin.copy:
+    src: rules/beamline-base.yml
+    dest: "{{ prometheus_config_dir }}/rules/beamline-base.yml"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/local/bin/promtool check rules %s
+  notify: Reload prometheus
+  tags: [prometheus]
+
+- name: Install the alert rules' unit tests
+  ansible.builtin.copy:
+    src: tests/beamline-base.test.yml
+    dest: "{{ prometheus_config_dir }}/tests/beamline-base.test.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [prometheus]
+
+- name: Run the alert rules' unit tests (a failing test fails the play)
+  ansible.builtin.command: /usr/local/bin/promtool test rules {{ prometheus_config_dir }}/tests/beamline-base.test.yml
+  changed_when: false
+  # Read-only, so it also runs in check mode, against the installed files. On a first
+  # run in check mode those files are only simulated, so it fails there; real runs
+  # still fail hard on any failing test.
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [prometheus]
+
 - name: Install the configuration, validated by promtool before it is put in place
   ansible.builtin.template:
     src: prometheus.yml.j2
