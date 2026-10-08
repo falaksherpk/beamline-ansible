@@ -53,3 +53,80 @@
     install_recommends: false
     update_cache: true
   tags: [pkg_web]
+
+- name: Create the TLS directory for nginx (root only)
+  ansible.builtin.file:
+    path: /etc/nginx/tls
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags: [pkg_web]
+
+- name: Install the lab-CA certificate for the repository host
+  ansible.builtin.copy:
+    src: "{{ pkg_tls_src_dir }}/{{ pkg_web_server_name }}.crt"
+    dest: "/etc/nginx/tls/{{ pkg_web_server_name }}.crt"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Check nginx configuration, Reload nginx]
+  tags: [pkg_web]
+
+- name: Install the private key for the repository host (from the controller, never from Git)
+  ansible.builtin.copy:
+    src: "{{ pkg_tls_src_dir }}/{{ pkg_web_server_name }}.key"
+    dest: "/etc/nginx/tls/{{ pkg_web_server_name }}.key"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  diff: false
+  notify: [Check nginx configuration, Reload nginx]
+  tags: [pkg_web]
+
+- name: Create the repository content directories (published by the owner, only read by nginx)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ pkg_web_owner }}"
+    group: "{{ pkg_web_owner }}"
+    mode: "0755"
+  loop:
+    - "{{ pkg_web_root }}"
+    - "{{ pkg_web_root }}/apt"
+    - "{{ pkg_web_root }}/conda"
+  tags: [pkg_web]
+
+- name: Install the repository site (conf.d drop-in, no symlink needed)
+  ansible.builtin.template:
+    src: beamline-repo.conf.j2
+    dest: /etc/nginx/conf.d/beamline-repo.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Check nginx configuration, Reload nginx]
+  tags: [pkg_web]
+
+- name: Disable the default site (plain HTTP on port 80)
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: [Check nginx configuration, Reload nginx]
+  tags: [pkg_web]
+
+- name: Keep nginx enabled and running
+  ansible.builtin.service:
+    name: nginx
+    enabled: true
+    state: started
+  tags: [pkg_web]
+
+- name: Allow HTTPS to the repository from the lab network only
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    from_ip: "{{ pkg_web_allowed_cidr }}"
+    comment: "beamline package repository (Ch15)"
+  tags: [pkg_web]

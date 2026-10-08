@@ -1,0 +1,28 @@
+# Managed by Ansible (beamline-ansible, role pkg) - do not edit on the host.
+# Internal package repository (handbook Ch15): HTTPS on the lab address only, read-only.
+server {
+    listen {{ pkg_web_listen_address }}:443 ssl;
+    server_name {{ pkg_web_server_name }};
+
+    ssl_certificate     /etc/nginx/tls/{{ pkg_web_server_name }}.crt;
+    ssl_certificate_key /etc/nginx/tls/{{ pkg_web_server_name }}.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    server_tokens       off;
+
+    root {{ pkg_web_root }};
+    autoindex on;
+
+    location / {
+        # Clients only ever read: anything but GET/HEAD is refused.
+        limit_except GET { deny all; }
+        try_files $uri $uri/ =404;
+    }
+
+    # Nothing hidden (dotfiles, tool state) is ever served.
+    location ~ /\. {
+        deny all;
+    }
+
+    access_log /var/log/nginx/beamline-repo.access.log;
+    error_log  /var/log/nginx/beamline-repo.error.log;
+}

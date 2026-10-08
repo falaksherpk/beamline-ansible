@@ -1,2 +1,14 @@
 ---
 # handlers file for pkg
+
+# Handlers run in the order defined here: the test comes first, so a broken
+# configuration fails the play. A reload alone would not: nginx keeps the old
+# configuration and only logs the error.
+- name: Check nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Reload nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

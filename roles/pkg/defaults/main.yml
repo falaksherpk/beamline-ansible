@@ -5,3 +5,12 @@
 # Upgrade = change both values (digest from the release's asset listing).
 pkg_apptainer_version: "1.5.4"
 pkg_apptainer_sha256: "281cf9bd68f16b6f7c34a3a94d77668bc327b9c09db0412ce7890162734a97f7"
+
+# Web serving (Ch15): nginx on the lab address only, TLS with a lab-CA certificate.
+pkg_web_root: /srv/beamline-repo
+pkg_web_owner: falak
+pkg_web_server_name: pkg.beamline
+pkg_web_listen_address: "10.10.10.13"
+pkg_web_allowed_cidr: "10.10.10.0/24"
+# Certificate and key are read on the controller (admin.beamline), outside Git.
+pkg_tls_src_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca"
