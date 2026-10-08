@@ -1,0 +1,20 @@
+# Managed by Ansible (beamline-ansible, role alertmanager) - do not edit on the host.
+# Validated with amtool check-config before it is installed.
+# The lab has no notification channel yet (no mail relay, no chat server): every
+# alert goes to a receiver without integrations and is visible through the API,
+# amtool and Grafana. Grouping, inhibition and silences work as usual.
+route:
+  receiver: lab-visible-only
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: lab-visible-only
+
+inhibit_rules:
+  # A critical alert mutes the warning of the same name on the same instance.
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, instance]

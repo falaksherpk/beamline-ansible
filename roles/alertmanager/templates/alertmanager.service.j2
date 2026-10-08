@@ -1,0 +1,35 @@
+# Managed by Ansible (beamline-ansible, role alertmanager) - do not edit on the host.
+[Unit]
+Description=Prometheus Alertmanager (handbook Ch16)
+Documentation=https://prometheus.io/docs/alerting/latest/alertmanager/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ alertmanager_user }}
+Group={{ alertmanager_user }}
+# --cluster.listen-address= (empty) switches clustering off: a single instance needs
+# no gossip, and the default would listen on 0.0.0.0:9094.
+ExecStart=/usr/local/bin/alertmanager \
+    --config.file={{ alertmanager_config_dir }}/alertmanager.yml \
+    --storage.path={{ alertmanager_data_dir }} \
+    --web.listen-address={{ alertmanager_listen_address }} \
+    --cluster.listen-address=
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+
+# Hardening: the data directory is the only writable path.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths={{ alertmanager_data_dir }}
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

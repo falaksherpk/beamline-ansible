@@ -9,3 +9,11 @@ alertmanager_sha256: "265b9d1e55ef0d5306a436018af6d2b686c2ce051f03d968f7464ecb13
 alertmanager_install_dir: "/opt/alertmanager/{{ alertmanager_version }}"
 # Verified downloads, kept outside apt's cache (apt-get clean would empty that).
 alertmanager_download_dir: /var/cache/beamline-pkg
+
+# The server: its own system user; loopback only, like Prometheus (the UI through an
+# SSH tunnel when needed: ssh -L 9093:localhost:9093 obs.beamline). A single
+# instance, so clustering is switched off in the unit.
+alertmanager_user: alertmanager
+alertmanager_data_dir: /var/lib/alertmanager
+alertmanager_config_dir: /etc/alertmanager
+alertmanager_listen_address: "127.0.0.1:9093"
