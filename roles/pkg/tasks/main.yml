@@ -130,3 +130,11 @@
     from_ip: "{{ pkg_web_allowed_cidr }}"
     comment: "beamline package repository (Ch15)"
   tags: [pkg_web]
+
+- name: Install reprepro to maintain the signed apt repository (Ch15)
+  ansible.builtin.apt:
+    name: reprepro
+    state: present
+    install_recommends: false
+    update_cache: true
+  tags: [pkg_apt_repo]
