@@ -14,3 +14,11 @@ pkg_web_listen_address: "10.10.10.13"
 pkg_web_allowed_cidr: "10.10.10.0/24"
 # Certificate and key are read on the controller (admin.beamline), outside Git.
 pkg_tls_src_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca"
+
+# Signed apt repository (Ch15): reprepro's own state in the owner's home, only the
+# published tree under the web root. The signing key is the primary key's fingerprint;
+# gpgme signs with its signing subkey, the only secret part present on this host.
+pkg_apt_repo_basedir: "/home/{{ pkg_web_owner }}/reprepro"
+pkg_apt_repo_outdir: "{{ pkg_web_root }}/apt"
+pkg_apt_repo_codename: noble
+pkg_apt_repo_signing_key: ECEE314121F9A4EA1CB1A2621AC8A9930C437FCF

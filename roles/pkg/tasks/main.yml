@@ -138,3 +138,35 @@
     install_recommends: false
     update_cache: true
   tags: [pkg_apt_repo]
+
+- name: Create reprepro's base, configuration and keyring directories (owner only for the keyring)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ pkg_web_owner }}"
+    group: "{{ pkg_web_owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ pkg_apt_repo_basedir }}", mode: "0750" }
+    - { path: "{{ pkg_apt_repo_basedir }}/conf", mode: "0750" }
+    - { path: "{{ pkg_apt_repo_basedir }}/gnupg", mode: "0700" }
+  tags: [pkg_apt_repo]
+
+- name: Configure reprepro (distributions, options)
+  ansible.builtin.template:
+    src: "reprepro-{{ item }}.j2"
+    dest: "{{ pkg_apt_repo_basedir }}/conf/{{ item }}"
+    owner: "{{ pkg_web_owner }}"
+    group: "{{ pkg_web_owner }}"
+    mode: "0644"
+  loop: [distributions, options]
+  tags: [pkg_apt_repo]
+
+- name: Publish the repository's public signing key next to the repository
+  ansible.builtin.copy:
+    src: beamline-apt-repo.asc
+    dest: "{{ pkg_web_root }}/beamline-apt-repo.asc"
+    owner: "{{ pkg_web_owner }}"
+    group: "{{ pkg_web_owner }}"
+    mode: "0644"
+  tags: [pkg_apt_repo]
