@@ -6,6 +6,13 @@
   roles:
     - common
 
+- name: Apply node_exporter to the whole fleet
+  hosts: all
+  become: true
+  tags: [node_exporter]
+  roles:
+    - node_exporter
+
 - name: Apply GitLab-specific configuration
   hosts: gitlab.beamline
   become: true

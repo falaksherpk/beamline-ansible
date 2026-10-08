@@ -1,0 +1,11 @@
+---
+# node_exporter (handbook Ch16): the Ubuntu archive's package on every host, scraped by
+# Prometheus on obs.beamline. Without recommends: prometheus-node-exporter-collectors
+# (extra textfile timers) is not wanted.
+- name: Install node_exporter from the Ubuntu archive (without the recommended collectors package)
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    install_recommends: false
+    update_cache: true
+  tags: [node_exporter]
