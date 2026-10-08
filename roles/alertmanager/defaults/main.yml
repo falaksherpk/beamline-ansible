@@ -1,0 +1,11 @@
+---
+# defaults file for alertmanager (handbook Ch16)
+
+# Upstream release, pinned by version and the SHA-256 of the linux-amd64 tarball.
+# The hash agreed in three places on 2026-10-08: GitHub's asset digest, the release's
+# sha256sums.txt and prometheus.io/download. Upgrade = change both values.
+alertmanager_version: "0.34.1"
+alertmanager_sha256: "265b9d1e55ef0d5306a436018af6d2b686c2ce051f03d968f7464ecb1372a7e8"
+alertmanager_install_dir: "/opt/alertmanager/{{ alertmanager_version }}"
+# Verified downloads, kept outside apt's cache (apt-get clean would empty that).
+alertmanager_download_dir: /var/cache/beamline-pkg

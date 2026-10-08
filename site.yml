@@ -27,6 +27,13 @@
   roles:
     - grafana
 
+- name: Apply Alertmanager configuration
+  hosts: observability
+  become: true
+  tags: [alertmanager]
+  roles:
+    - alertmanager
+
 - name: Apply GitLab-specific configuration
   hosts: gitlab.beamline
   become: true

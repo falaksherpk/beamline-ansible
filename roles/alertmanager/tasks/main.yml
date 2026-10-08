@@ -1,0 +1,58 @@
+---
+# Alertmanager (handbook Ch16): the upstream release on obs.beamline, from its release
+# tarball pinned by version and SHA-256. Each version has its own directory under
+# /opt/alertmanager; /usr/local/bin links to the active one.
+- name: Create the cache directory for verified downloads
+  ansible.builtin.file:
+    path: "{{ alertmanager_download_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [alertmanager]
+
+- name: Download the Alertmanager release tarball; refused unless its SHA-256 matches
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    dest: "{{ alertmanager_download_dir }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    checksum: "sha256:{{ alertmanager_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  # In check mode a not-yet-created directory above is only simulated, so get_url
+  # cannot place the file. Real runs still fail hard (missing directory, failed
+  # download, checksum mismatch).
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [alertmanager]
+
+- name: Create the directory for this Alertmanager version
+  ansible.builtin.file:
+    path: "{{ alertmanager_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [alertmanager]
+
+- name: Unpack the verified tarball into the version directory, owned by root
+  ansible.builtin.unarchive:
+    src: "{{ alertmanager_download_dir }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    dest: "{{ alertmanager_install_dir }}"
+    remote_src: true
+    extra_opts: [--strip-components=1, --no-same-owner]
+    owner: root
+    group: root
+    creates: "{{ alertmanager_install_dir }}/alertmanager"
+  # In check mode the download and the version directory are only simulated.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [alertmanager]
+
+- name: Link the active version's binaries into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ alertmanager_install_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop: [alertmanager, amtool]
+  # In check mode the unpacked binaries do not exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [alertmanager]
