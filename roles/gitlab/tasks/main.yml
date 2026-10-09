@@ -77,3 +77,53 @@
     mode: "0644"
   notify: Reconfigure GitLab
   tags: [gitlab_trusted_certs]
+
+- name: Allow Workhorse metrics only from the Prometheus host
+  community.general.ufw:
+    rule: allow
+    port: "{{ gitlab_workhorse_metrics_port }}"
+    proto: tcp
+    from_ip: "{{ gitlab_metrics_scraper_ip }}"
+    comment: "gitlab-workhorse metrics, scraped from obs (Ch16)"
+  tags: [gitlab_firewall, gitlab_config]
+
+- name: Allow Gitaly metrics only from the Prometheus host
+  community.general.ufw:
+    rule: allow
+    port: "{{ gitlab_gitaly_metrics_port }}"
+    proto: tcp
+    from_ip: "{{ gitlab_metrics_scraper_ip }}"
+    comment: "gitaly metrics, scraped from obs (Ch16)"
+  tags: [gitlab_firewall, gitlab_config]
+
+- name: Create the systemd drop-in directory for gitlab-runsvdir
+  ansible.builtin.file:
+    path: /etc/systemd/system/gitlab-runsvdir.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [gitlab_config]
+
+- name: Start GitLab's services only once the network is up (Workhorse and Gitaly bind to the lab address)
+  ansible.builtin.copy:
+    src: gitlab-runsvdir-network-online.conf
+    dest: /etc/systemd/system/gitlab-runsvdir.service.d/network-online.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+  tags: [gitlab_config]
+
+- name: Install gitlab.rb from Git (Ruby syntax checked before it is put in place)
+  # reconfigure restarts the services whose configuration changed (Ch14: Puma and
+  # Workhorse for trusted certs, ~1 min without the web UI, API and Git over SSH).
+  ansible.builtin.template:
+    src: gitlab.rb.j2
+    dest: /etc/gitlab/gitlab.rb
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /opt/gitlab/embedded/bin/ruby -c %s
+  notify: Reconfigure GitLab
+  tags: [gitlab_config]

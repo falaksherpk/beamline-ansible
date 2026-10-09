@@ -6,6 +6,10 @@
     name: gitlab-runner
     state: restarted
 
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
 - name: Reconfigure GitLab
   ansible.builtin.command: gitlab-ctl reconfigure
   changed_when: true

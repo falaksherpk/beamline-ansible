@@ -1,0 +1,30 @@
+# Managed by Ansible (beamline-ansible, role gitlab) - do not edit on the host.
+# First written by hand before installing gitlab-ce (Part 2, Ch10).
+# Full reference: /opt/gitlab/etc/gitlab.rb.template
+external_url "https://gitlab.beamline"
+
+# TLS uses the lab CA certificate in /etc/gitlab/ssl/gitlab.beamline.{crt,key};
+# Lets Encrypt must stay off, or its renewal could overwrite that certificate.
+letsencrypt["enable"] = false
+
+# Container registry on the same hostname, port 5050. It uses the same
+# certificate by default (/etc/gitlab/ssl/<registry host>.crt/.key).
+registry_external_url "https://gitlab.beamline:5050"
+
+# Port 80 only redirects to HTTPS. Off by default when Lets Encrypt is disabled.
+gitlab_rails["nginx"]["redirect_http_to_https"] = true
+
+# Bundled monitoring off: Prometheus on obs.beamline (Ch16) scrapes this host,
+# and node_exporter already runs on the lab address (role node_exporter).
+prometheus_monitoring["enable"] = false
+sidekiq["metrics_enabled"] = false
+
+# Metrics for Prometheus on obs.beamline (Ch16), scraped every 60 s.
+# Rails /-/metrics through nginx on 443; this also opens /-/health, /-/readiness
+# and /-/liveness to obs.
+gitlab_rails["monitoring_whitelist"] = ["127.0.0.0/8", "::1/128", "{{ gitlab_metrics_scraper_ip }}/32"]
+# Workhorse and Gitaly metrics on the lab address; ufw allows only obs.beamline.
+gitlab_workhorse["prometheus_listen_addr"] = "{{ ansible_host }}:{{ gitlab_workhorse_metrics_port }}"
+gitaly["configuration"] = {
+  prometheus_listen_addr: "{{ ansible_host }}:{{ gitlab_gitaly_metrics_port }}",
+}
