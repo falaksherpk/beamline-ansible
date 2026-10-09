@@ -1,0 +1,17 @@
+# Managed by Ansible (beamline-ansible, role grafana) - do not edit on the host.
+# Dashboards come from files under /etc/grafana/dashboards (role grafana), never
+# from the UI: they cannot be deleted or saved over there, and a rebuild restores them.
+apiVersion: 1
+
+providers:
+  - name: beamline
+    orgId: 1
+    folder: Beamline
+    folderUid: beamline
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

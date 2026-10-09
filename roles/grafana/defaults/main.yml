@@ -20,3 +20,7 @@ grafana_tls_src_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca"
 grafana_ui_allowed_from: "10.10.10.1"
 # Prometheus on the same host, loopback only (role prometheus).
 grafana_prometheus_url: "http://127.0.0.1:9090"
+# Alertmanager on the same host, loopback only (role alertmanager).
+grafana_alertmanager_url: "http://127.0.0.1:9093"
+# Dashboards: files/dashboards/<name>.json, provisioned into the folder Beamline.
+grafana_dashboards: [beamline-fleet]

@@ -124,6 +124,46 @@
   notify: Restart grafana-server
   tags: [grafana]
 
+- name: Provision the Alertmanager datasource
+  ansible.builtin.template:
+    src: datasource-alertmanager.yaml.j2
+    dest: /etc/grafana/provisioning/datasources/alertmanager.yaml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Create the directory for provisioned dashboards (owner and mode as the package's postinst sets them)
+  ansible.builtin.file:
+    path: /etc/grafana/dashboards
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0755"
+  tags: [grafana]
+
+- name: Install the dashboard provider (dashboards from files, not editable in the UI)
+  ansible.builtin.copy:
+    src: dashboards-provider.yaml
+    dest: /etc/grafana/provisioning/dashboards/beamline.yaml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana-server
+  tags: [grafana]
+
+- name: Install the dashboards, each validated as JSON (the provider rereads them within a minute)
+  ansible.builtin.copy:
+    src: "dashboards/{{ item }}.json"
+    dest: "/etc/grafana/dashboards/{{ item }}.json"
+    owner: root
+    group: grafana
+    mode: "0640"
+    validate: /usr/bin/python3 -I -c "import json, sys; json.load(open(sys.argv[1]))" %s
+  loop: "{{ grafana_dashboards }}"
+  tags: [grafana]
+
 - name: Allow the Grafana UI from beamlinehost only
   community.general.ufw:
     rule: allow

@@ -1,0 +1,15 @@
+# Managed by Ansible (beamline-ansible, role grafana) - do not edit on the host.
+# Alertmanager on the same host, loopback only (role alertmanager): firing alerts
+# and silences become visible in Grafana. Grafana's own alerting does not send here.
+apiVersion: 1
+
+datasources:
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: {{ grafana_alertmanager_url }}
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false
