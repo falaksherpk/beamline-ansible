@@ -179,3 +179,54 @@
     group: root
     mode: "0755"
   tags: [pkg_publish]
+
+- name: Install GitLab's apt repository key for gitlab-runner (fingerprint pinned in defaults; Ch17)
+  ansible.builtin.copy:
+    src: gitlab-runner-apt.asc
+    dest: "{{ pkg_runner_apt_keyring }}"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [pkg_runner]
+
+- name: Add the gitlab-runner apt repository (deb822, Signed-By that key only)
+  ansible.builtin.template:
+    src: gitlab-runner.sources.j2
+    dest: /etc/apt/sources.list.d/gitlab-runner.sources
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [pkg_runner]
+
+- name: Install gitlab-runner and its helper images at GitLab's version (a hard dependency)
+  ansible.builtin.apt:
+    name:
+      - "gitlab-runner={{ pkg_runner_version }}"
+      - "gitlab-runner-helper-images={{ pkg_runner_version }}"
+    update_cache: true
+  # In check mode the repository above is only simulated, so apt can't find the packages.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [pkg_runner]
+
+- name: Hold the runner packages at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [gitlab-runner, gitlab-runner-helper-images]
+  # In check mode the packages aren't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [pkg_runner]
+
+- name: Give the runner user its own subordinate UID/GID range (rootless Podman)
+  ansible.builtin.lineinfile:
+    path: "/etc/{{ item }}"
+    regexp: "^{{ pkg_runner_user }}:"
+    line: "{{ pkg_runner_user }}:{{ pkg_runner_subid_start }}:{{ pkg_runner_subid_count }}"
+  loop: [subuid, subgid]
+  tags: [pkg_runner]
+
+- name: Keep a systemd user manager for the runner user (rootless Podman; jobs have no login)
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ pkg_runner_user }}"
+    creates: "/var/lib/systemd/linger/{{ pkg_runner_user }}"
+  tags: [pkg_runner]

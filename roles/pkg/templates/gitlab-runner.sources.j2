@@ -1,0 +1,7 @@
+# Managed by Ansible (beamline-ansible, role pkg) - do not edit on the host.
+# GitLab Runner's apt repository (Ch17), trusted only with GitLab's repository key.
+Types: deb
+URIs: {{ pkg_runner_apt_uri }}
+Suites: {{ pkg_runner_apt_suite }}
+Components: main
+Signed-By: {{ pkg_runner_apt_keyring }}

@@ -27,3 +27,22 @@ pkg_apt_repo_signing_key: ECEE314121F9A4EA1CB1A2621AC8A9930C437FCF
 # by a pinned rattler-index build in a throwaway container from a pinned image.
 pkg_conda_indexer_image: docker.io/condaforge/miniforge3@sha256:f752860f77bd417aa4db35be3d2e906fdb740fb80f40755ed651fff9e8873aad
 pkg_conda_indexer_spec: rattler-index==0.33.1=h91e2699_0
+
+# GitLab Runner (Ch17): one shell-executor runner on this host for beamline-healthcheck's
+# pipeline, registered for protected refs only. Same version as GitLab and the runner on
+# gitlab.beamline. gitlab-runner hard-depends on gitlab-runner-helper-images of the same
+# version (~510 MiB), although the shell executor never uses those images.
+pkg_runner_version: "19.4.1-1"
+pkg_runner_user: gitlab-runner
+# The apt repository is trusted with one key only, files/gitlab-runner-apt.asc:
+# GitLab B.V. package repository signing key, F6403F6544A38863DAA0B6E03F01618A51312F3F,
+# expires 2028-02-06. On 2026-10-09 it signed the repository's InRelease (gpgv), and
+# GitLab's package-signature documentation lists the same fingerprint. The repository's
+# InRelease carries no Valid-Until.
+pkg_runner_apt_uri: https://packages.gitlab.com/runner/gitlab-runner/ubuntu
+pkg_runner_apt_suite: noble
+pkg_runner_apt_keyring: /etc/apt/keyrings/gitlab-runner-apt.asc
+# Rootless Podman for the runner user: a subordinate UID/GID range of its own, after
+# the login user's 100000:65536.
+pkg_runner_subid_start: 165536
+pkg_runner_subid_count: 65536
