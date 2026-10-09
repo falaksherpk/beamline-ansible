@@ -46,3 +46,9 @@ pkg_runner_apt_keyring: /etc/apt/keyrings/gitlab-runner-apt.asc
 # the login user's 100000:65536.
 pkg_runner_subid_start: 165536
 pkg_runner_subid_count: 65536
+
+# Publishing from CI (Ch17): jobs hand packages over in a drop directory owned by the
+# runner user, group-readable by the repository owner (setgid keeps that group), and may
+# run only beamline-publish as the owner (sudoers). Linger keeps the owner's runtime
+# directory (rootless Podman, gpg-agent) while nobody is logged in.
+pkg_publish_dropdir: /var/spool/beamline-publish

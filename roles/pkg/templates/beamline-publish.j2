@@ -20,6 +20,13 @@ die() { echo "beamline-publish: $*" >&2; exit 1; }
 kind=$1
 file=$2
 [[ -f $file ]] || die "no such file: $file"
+file=$(realpath -e -- "$file")
+# Run from a CI job through sudo (Ch17): the caller's directory may be unreadable to the
+# owner, and sudo does not pass XDG_RUNTIME_DIR on. Rootless Podman and gpg-agent need
+# the owner's runtime directory, which linger keeps.
+cd /
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+[[ -d $XDG_RUNTIME_DIR ]] || die "no runtime directory $XDG_RUNTIME_DIR (is linger enabled for $owner?)"
 
 case $kind in
   deb)

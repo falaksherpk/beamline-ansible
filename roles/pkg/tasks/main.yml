@@ -230,3 +230,28 @@
     cmd: "loginctl enable-linger {{ pkg_runner_user }}"
     creates: "/var/lib/systemd/linger/{{ pkg_runner_user }}"
   tags: [pkg_runner]
+
+- name: Keep a systemd user manager for the repository owner (beamline-publish from CI; Ch17)
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ pkg_web_owner }}"
+    creates: "/var/lib/systemd/linger/{{ pkg_web_owner }}"
+  tags: [pkg_runner]
+
+- name: Create the drop directory for publishing from CI (runner writes, owner's group reads)
+  ansible.builtin.file:
+    path: "{{ pkg_publish_dropdir }}"
+    state: directory
+    owner: "{{ pkg_runner_user }}"
+    group: "{{ pkg_web_owner }}"
+    mode: "2750"
+  tags: [pkg_runner]
+
+- name: Let CI jobs run beamline-publish as the repository owner, and nothing else
+  ansible.builtin.template:
+    src: sudoers-gitlab-runner-publish.j2
+    dest: /etc/sudoers.d/gitlab-runner-publish
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  tags: [pkg_runner]

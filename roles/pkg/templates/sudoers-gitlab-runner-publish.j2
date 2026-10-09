@@ -1,0 +1,7 @@
+# Managed by Ansible (beamline-ansible, role pkg) - do not edit on the host.
+# CI jobs on this host run as {{ pkg_runner_user }} (protected refs of beamline-healthcheck
+# only). They may publish a package from the drop directory as the repository owner:
+# exactly these two commands, nothing else (Ch17). A * in an argument also matches "/",
+# so this rule fixes the command and the user, not the path; the trust boundary is who
+# can run protected pipelines (Maintainers).
+{{ pkg_runner_user }} ALL=({{ pkg_web_owner }}) NOPASSWD: /usr/local/bin/beamline-publish deb {{ pkg_publish_dropdir }}/*.deb, /usr/local/bin/beamline-publish conda {{ pkg_publish_dropdir }}/*.conda
