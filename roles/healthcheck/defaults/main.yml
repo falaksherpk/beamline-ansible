@@ -1,0 +1,29 @@
+---
+# Role healthcheck (handbook Ch16): beamline-healthcheck from the internal apt
+# repository, run every minute by a systemd timer as an unprivileged user, its
+# results written for node_exporter's textfile collector.
+
+# Pinned; only the internal repository ships it, and unattended-upgrades takes
+# Ubuntu origins only (checked: our Release has o=Beamline Lab), so no hold.
+healthcheck_version: "1.0.0"
+healthcheck_user: beamline-healthcheck
+# Members may create files in the textfile directory; its sticky bit stops them
+# from deleting or replacing each other's files.
+healthcheck_textfile_group: textfile-writers
+# Must equal node_exporter_textfile_dir (role node_exporter, a different play,
+# whose defaults are not visible here); a task asserts that the directory exists.
+healthcheck_textfile_dir: /var/lib/prometheus/node-exporter
+healthcheck_textfile_name: beamline_healthcheck.prom
+healthcheck_interval: 1min
+
+# Thresholds: the package's own defaults, matching the Prometheus host rules.
+healthcheck_disk_paths: ["/"]
+healthcheck_min_disk_free: 0.10
+healthcheck_min_mem_available: 0.10
+healthcheck_max_load_per_cpu: 2.0
+# HOST:PORT dependencies that must accept a TCP connection; set per host.
+healthcheck_tcp_targets: []
+healthcheck_tcp_timeout: 3
+
+# Internal: what dpkg-statoverride --list prints once our override is in place.
+healthcheck_statoverride_wanted: "root {{ healthcheck_textfile_group }} 1775 {{ healthcheck_textfile_dir }}"

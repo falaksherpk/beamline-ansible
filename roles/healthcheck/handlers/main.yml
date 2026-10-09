@@ -1,0 +1,14 @@
+---
+# handlers file for healthcheck
+# Handlers run in the order defined here: systemd rereads the units before the
+# timer restarts. A changed service unit needs no restart: the next run uses it.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart beamline-healthcheck timer
+  ansible.builtin.systemd_service:
+    name: beamline-healthcheck.timer
+    state: restarted
+  # In check mode a unit that is not installed yet is unknown to systemd; real runs still fail hard.
+  ignore_errors: "{{ ansible_check_mode }}"

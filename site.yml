@@ -13,6 +13,13 @@
   roles:
     - node_exporter
 
+- name: Apply the host health check to the whole fleet
+  hosts: all
+  become: true
+  tags: [healthcheck]
+  roles:
+    - healthcheck
+
 - name: Apply Prometheus server configuration
   hosts: observability
   become: true

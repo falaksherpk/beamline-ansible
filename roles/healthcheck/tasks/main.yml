@@ -1,0 +1,92 @@
+---
+# tasks file for healthcheck (handbook Ch16)
+- name: Read the textfile directory's metadata (created by the node_exporter play, which runs first)
+  ansible.builtin.stat:
+    path: "{{ healthcheck_textfile_dir }}"
+  register: healthcheck_textfile_dir_stat
+  tags: [healthcheck]
+
+- name: Refuse to go on without node_exporter's textfile directory
+  ansible.builtin.assert:
+    that:
+      - healthcheck_textfile_dir_stat.stat.exists
+      - healthcheck_textfile_dir_stat.stat.isdir
+    fail_msg: "{{ healthcheck_textfile_dir }} is missing: run the node_exporter play first."
+    quiet: true
+  tags: [healthcheck]
+
+- name: Install the pinned beamline-healthcheck from the internal repository
+  ansible.builtin.apt:
+    name: "beamline-healthcheck={{ healthcheck_version }}"
+    state: present
+    install_recommends: false
+  tags: [healthcheck]
+
+- name: Create the group allowed to write node_exporter textfiles
+  ansible.builtin.group:
+    name: "{{ healthcheck_textfile_group }}"
+    system: true
+  tags: [healthcheck]
+
+- name: Create the health check's system user (no login, no home)
+  ansible.builtin.user:
+    name: "{{ healthcheck_user }}"
+    group: "{{ healthcheck_textfile_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+  tags: [healthcheck]
+
+- name: Read the textfile directory's statoverride (exit 1 means none)
+  ansible.builtin.command: dpkg-statoverride --list {{ healthcheck_textfile_dir }}
+  register: healthcheck_statoverride
+  changed_when: false
+  failed_when: healthcheck_statoverride.rc not in [0, 1]
+  check_mode: false
+  tags: [healthcheck]
+
+- name: Remove a statoverride on the textfile directory that differs from ours
+  ansible.builtin.command: dpkg-statoverride --remove {{ healthcheck_textfile_dir }}
+  when:
+    - healthcheck_statoverride.rc == 0
+    - healthcheck_statoverride.stdout != healthcheck_statoverride_wanted
+  tags: [healthcheck]
+
+- name: Let the textfile group create files there (root:group 1775, a statoverride, so package upgrades keep it)
+  ansible.builtin.command: >-
+    dpkg-statoverride --update --add root {{ healthcheck_textfile_group }} 1775 {{ healthcheck_textfile_dir }}
+  when: healthcheck_statoverride.stdout != healthcheck_statoverride_wanted
+  tags: [healthcheck]
+
+- name: Install the health check's service unit
+  ansible.builtin.template:
+    src: beamline-healthcheck.service.j2
+    dest: /etc/systemd/system/beamline-healthcheck.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+  tags: [healthcheck]
+
+- name: Install the health check's timer unit
+  ansible.builtin.template:
+    src: beamline-healthcheck.timer.j2
+    dest: /etc/systemd/system/beamline-healthcheck.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart beamline-healthcheck timer
+  tags: [healthcheck]
+
+- name: Keep the health check's timer enabled and running
+  ansible.builtin.systemd_service:
+    name: beamline-healthcheck.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  # In check mode the timer unit is not installed yet, so systemd does not know it.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [healthcheck]

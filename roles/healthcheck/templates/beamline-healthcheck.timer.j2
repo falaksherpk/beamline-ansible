@@ -1,0 +1,12 @@
+# Managed by Ansible (beamline-ansible, role healthcheck) - do not edit on the host.
+[Unit]
+Description=Run the beamline host health check every {{ healthcheck_interval }} (handbook Ch16)
+
+[Timer]
+OnBootSec={{ healthcheck_interval }}
+OnUnitActiveSec={{ healthcheck_interval }}
+# systemd's default accuracy (1min) would let runs drift up to a minute late.
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

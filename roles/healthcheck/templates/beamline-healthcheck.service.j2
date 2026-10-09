@@ -1,0 +1,45 @@
+# Managed by Ansible (beamline-ansible, role healthcheck) - do not edit on the host.
+[Unit]
+Description=Beamline host health check for node_exporter's textfile collector (handbook Ch16)
+Documentation=https://gitlab.beamline/beamline/beamline-healthcheck
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ healthcheck_user }}
+Group={{ healthcheck_textfile_group }}
+UMask=0022
+ExecStart=/usr/bin/beamline-healthcheck --quiet{% for p in healthcheck_disk_paths %} --disk-path {{ p }}{% endfor %} --min-disk-free {{ healthcheck_min_disk_free }} --min-mem-available {{ healthcheck_min_mem_available }} --max-load-per-cpu {{ healthcheck_max_load_per_cpu }}{% for t in healthcheck_tcp_targets %} --tcp {{ t }}{% endfor %} --tcp-timeout {{ healthcheck_tcp_timeout }} --prometheus {{ healthcheck_textfile_dir }}/{{ healthcheck_textfile_name }}
+# Exit 1 means a check failed: that is a result (a metric), not a broken unit.
+# Exit 2 (usage error) and anything else still fail the unit.
+SuccessExitStatus=1
+
+# Hardening. Only the textfile directory is writable. Not ProcSubset=pid: the
+# tool reads /proc/meminfo and /proc/loadavg. Not PrivateUsers: the .prom file
+# keeps its real owner.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths={{ healthcheck_textfile_dir }}
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
