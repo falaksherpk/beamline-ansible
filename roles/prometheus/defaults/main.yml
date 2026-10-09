@@ -27,3 +27,12 @@ prometheus_node_exporter_port: 9100
 prometheus_alertmanager_address: "127.0.0.1:9093"
 # Alert rule files: files/rules/<name>.yml, each with files/tests/<name>.test.yml.
 prometheus_rule_files: [beamline-base, beamline-healthcheck]
+
+# GitLab (role gitlab, Ch16): Rails /-/metrics through nginx on 443, TLS verified
+# against the lab CA; Workhorse and Gitaly on GitLab's lab address (ports as in
+# role gitlab). Every 60 s: at 15 s, GitLab's ~17 000 series would push 30 days
+# of data past the 8 GB retention cap.
+prometheus_gitlab_scrape_interval: 60s
+prometheus_gitlab_ca_file: /usr/local/share/ca-certificates/beamline-ca.crt
+prometheus_gitlab_workhorse_port: 9229
+prometheus_gitlab_gitaly_port: 9236

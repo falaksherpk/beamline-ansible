@@ -35,3 +35,23 @@ scrape_configs:
 {% for host in groups['all'] | sort %}
           - "{{ host }}:{{ prometheus_node_exporter_port }}"
 {% endfor %}
+
+  # GitLab (role gitlab), every {{ prometheus_gitlab_scrape_interval }}.
+  - job_name: gitlab-rails
+    scrape_interval: {{ prometheus_gitlab_scrape_interval }}
+    scheme: https
+    metrics_path: /-/metrics
+    tls_config:
+      ca_file: {{ prometheus_gitlab_ca_file }}
+    static_configs:
+      - targets: ["{{ groups['gitlab'][0] }}:443"]
+
+  - job_name: gitlab-workhorse
+    scrape_interval: {{ prometheus_gitlab_scrape_interval }}
+    static_configs:
+      - targets: ["{{ groups['gitlab'][0] }}:{{ prometheus_gitlab_workhorse_port }}"]
+
+  - job_name: gitlab-gitaly
+    scrape_interval: {{ prometheus_gitlab_scrape_interval }}
+    static_configs:
+      - targets: ["{{ groups['gitlab'][0] }}:{{ prometheus_gitlab_gitaly_port }}"]
