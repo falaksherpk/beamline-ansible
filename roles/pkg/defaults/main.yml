@@ -52,3 +52,9 @@ pkg_runner_subid_count: 65536
 # run only beamline-publish as the owner (sudoers). Linger keeps the owner's runtime
 # directory (rootless Podman, gpg-agent) while nobody is logged in.
 pkg_publish_dropdir: /var/spool/beamline-publish
+
+# Weekly prune of the runner's Podman images (Ch17): every image no container uses whose
+# creation time is older than pkg_runner_prune_age. Podman's "until" is the image's
+# creation time, not when it was pulled or built here. pkg runs in UTC.
+pkg_runner_prune_age: 168h
+pkg_runner_prune_calendar: "Sun *-*-* 03:00:00"

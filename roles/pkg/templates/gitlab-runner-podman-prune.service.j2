@@ -1,0 +1,15 @@
+# Managed by Ansible (beamline-ansible, role pkg) - do not edit on the host.
+# Weekly prune of the CI runner's Podman images (Ch17): every image that no container
+# uses and whose creation time is older than {{ pkg_runner_prune_age }}. Podman's "until"
+# is the image's creation time: CI images carry the commit time (build-oci.sh
+# --timestamp) and pinned base images their upstream time. The next pipeline rebuilds
+# or pulls whatever it needs.
+[Unit]
+Description=Prune old Podman images of {{ pkg_runner_user }} (CI runner)
+
+[Service]
+Type=oneshot
+User={{ pkg_runner_user }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ ansible_facts.getent_passwd[pkg_runner_user][1] }}
+WorkingDirectory=~
+ExecStart=/usr/bin/podman image prune --all --force --filter until={{ pkg_runner_prune_age }}
