@@ -19,6 +19,11 @@ networking:
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: systemd
+# Serving certificate from the cluster CA through a CSR instead of a self-signed
+# one (Chapter 16, D2), so Prometheus on obs can verify the kubelet on 10250.
+# kubelet-serving CSRs are never auto-approved: approve each by hand, also at
+# rotation (kubelet_certificate_manager_server_ttl_seconds shows the time left).
+serverTLSBootstrap: true
 ---
 # NodePorts only on lab-network addresses (Chapter 14). With the default
 # (null) kube-proxy serves them on every local address, incl. nat0 and
