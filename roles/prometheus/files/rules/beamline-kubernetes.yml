@@ -1,0 +1,18 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Kubernetes alert rules (handbook Ch16), validated by promtool check rules before they
+# are installed, and exercised by tests/beamline-kubernetes.test.yml on every converge.
+groups:
+  - name: beamline-kubernetes
+    rules:
+      # Kubelet serving certificates come from the cluster CA through CSRs that are
+      # approved by hand (Ch16, D2), also at rotation, which the kubelet starts at 70-90%
+      # of the one-year lifetime. Unapproved, the certificate expires and Prometheus,
+      # kubectl logs and kubectl exec can no longer reach that kubelet.
+      - alert: KubeletServingCertificateExpiring
+        expr: kubelet_certificate_manager_server_ttl_seconds < 30 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubelet serving certificate of {{ $labels.instance }} expires in {{ $value | humanizeDuration }}"
+          description: "Approve the node's pending kubelet-serving CSR after checking it as in Ch16 D2 (kubectl get csr; kubectl certificate approve <name>)."

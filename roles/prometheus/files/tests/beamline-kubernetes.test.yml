@@ -1,0 +1,32 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Unit tests for rules/beamline-kubernetes.yml (promtool test rules), run on every converge.
+# Each rule is shown to fire for a synthetic bad series and to stay silent for a good one.
+rule_files:
+  - ../rules/beamline-kubernetes.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: KubeletServingCertificateExpiring fires under 30 days left after 1 hour, not for a fresh certificate
+    interval: 1m
+    input_series:
+      # 29 days left and falling by one minute per minute
+      - series: 'kubelet_certificate_manager_server_ttl_seconds{job="kubelet", instance="old.beamline:10250"}'
+        values: '2505600-60x90'
+      # 364 days left
+      - series: 'kubelet_certificate_manager_server_ttl_seconds{job="kubelet", instance="new.beamline:10250"}'
+        values: '31449600-60x90'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: KubeletServingCertificateExpiring
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: KubeletServingCertificateExpiring
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: kubelet
+              instance: old.beamline:10250
+            exp_annotations:
+              summary: "Kubelet serving certificate of old.beamline:10250 expires in 28d 23h 0m 0s"
+              description: "Approve the node's pending kubelet-serving CSR after checking it as in Ch16 D2 (kubectl get csr; kubectl certificate approve <name>)."
