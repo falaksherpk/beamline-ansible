@@ -100,6 +100,46 @@
   loop: [rules, tests]
   tags: [prometheus]
 
+- name: Create the directory for the Kubernetes scrape credentials (the server group may read)
+  ansible.builtin.file:
+    path: "{{ prometheus_k8s_dir }}"
+    state: directory
+    owner: root
+    group: "{{ prometheus_user }}"
+    mode: "0750"
+  tags: [prometheus]
+
+- name: Install the Kubernetes cluster CA (public; verifies the apiserver and the kubelets)
+  ansible.builtin.copy:
+    src: k8s-cluster-ca.crt
+    dest: "{{ prometheus_k8s_ca_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload prometheus
+  tags: [prometheus]
+
+- name: Look for the ServiceAccount token (placed by hand, Ch16 D4; never by Ansible)
+  ansible.builtin.stat:
+    path: "{{ prometheus_k8s_token_file }}"
+  register: prometheus_k8s_token
+  tags: [prometheus]
+
+- name: Require the token, non-empty and readable by root and the server group only
+  ansible.builtin.assert:
+    that:
+      - prometheus_k8s_token.stat.exists
+      - prometheus_k8s_token.stat.size > 0
+      - prometheus_k8s_token.stat.pw_name == 'root'
+      - prometheus_k8s_token.stat.gr_name == prometheus_user
+      - prometheus_k8s_token.stat.mode == '0640'
+    fail_msg: >-
+      {{ prometheus_k8s_token_file }} must exist as root:{{ prometheus_user }} 0640 and hold
+      the token of Secret monitoring/prometheus-obs-token (Chapter 16, D4: created and
+      copied by hand, never stored in Git).
+    quiet: true
+  tags: [prometheus]
+
 - name: Install the alert rules, validated by promtool before they are put in place
   ansible.builtin.copy:
     src: "rules/{{ item }}.yml"

@@ -55,3 +55,43 @@ scrape_configs:
     scrape_interval: {{ prometheus_gitlab_scrape_interval }}
     static_configs:
       - targets: ["{{ groups['gitlab'][0] }}:{{ prometheus_gitlab_gitaly_port }}"]
+
+  # Kubernetes (Ch16), every {{ prometheus_k8s_scrape_interval }}, as ServiceAccount
+  # monitoring/prometheus-obs; TLS verified against the cluster CA.
+  - job_name: kube-state-metrics
+    scrape_interval: {{ prometheus_k8s_scrape_interval }}
+    scheme: https
+    metrics_path: {{ prometheus_k8s_ksm_path }}
+    authorization:
+      credentials_file: {{ prometheus_k8s_token_file }}
+    tls_config:
+      ca_file: {{ prometheus_k8s_ca_file }}
+    static_configs:
+      - targets: ["{{ prometheus_k8s_apiserver }}"]
+
+  - job_name: kubelet
+    scrape_interval: {{ prometheus_k8s_scrape_interval }}
+    scheme: https
+    authorization:
+      credentials_file: {{ prometheus_k8s_token_file }}
+    tls_config:
+      ca_file: {{ prometheus_k8s_ca_file }}
+    static_configs:
+      - targets:
+{% for host in groups['kubernetes'] | sort %}
+          - "{{ host }}:{{ prometheus_k8s_kubelet_port }}"
+{% endfor %}
+
+  - job_name: cadvisor
+    scrape_interval: {{ prometheus_k8s_scrape_interval }}
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    authorization:
+      credentials_file: {{ prometheus_k8s_token_file }}
+    tls_config:
+      ca_file: {{ prometheus_k8s_ca_file }}
+    static_configs:
+      - targets:
+{% for host in groups['kubernetes'] | sort %}
+          - "{{ host }}:{{ prometheus_k8s_kubelet_port }}"
+{% endfor %}

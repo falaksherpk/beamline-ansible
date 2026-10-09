@@ -36,3 +36,18 @@ prometheus_gitlab_scrape_interval: 60s
 prometheus_gitlab_ca_file: /usr/local/share/ca-certificates/beamline-ca.crt
 prometheus_gitlab_workhorse_port: 9229
 prometheus_gitlab_gitaly_port: 9236
+
+# Kubernetes (Ch16): kube-state-metrics through the apiserver's service proxy, and the
+# kubelets (/metrics, /metrics/cadvisor) on 10250, as ServiceAccount
+# monitoring/prometheus-obs (RBAC in beamline-k8s apps/kube-state-metrics). TLS is
+# verified against the cluster CA in files/k8s-cluster-ca.crt (kubeadm's ca.crt, valid
+# until 2036; replace it if the cluster is ever re-initialised). The token is created
+# and copied by hand (D4); this role only checks that it is there. Every 60 s: about
+# 16 300 samples per round (2158 KSM, 3 x ~1630 kubelet, 3 x ~3100 cAdvisor; 2026-10-09).
+prometheus_k8s_scrape_interval: 60s
+prometheus_k8s_dir: "{{ prometheus_config_dir }}/k8s"
+prometheus_k8s_ca_file: "{{ prometheus_k8s_dir }}/cluster-ca.crt"
+prometheus_k8s_token_file: "{{ prometheus_k8s_dir }}/prometheus-obs.token"
+prometheus_k8s_apiserver: "{{ groups['k8s_control'][0] }}:6443"
+prometheus_k8s_kubelet_port: 10250
+prometheus_k8s_ksm_path: /api/v1/namespaces/monitoring/services/kube-state-metrics:http-metrics/proxy/metrics
