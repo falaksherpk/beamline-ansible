@@ -102,26 +102,29 @@
 
 - name: Install the alert rules, validated by promtool before they are put in place
   ansible.builtin.copy:
-    src: rules/beamline-base.yml
-    dest: "{{ prometheus_config_dir }}/rules/beamline-base.yml"
+    src: "rules/{{ item }}.yml"
+    dest: "{{ prometheus_config_dir }}/rules/{{ item }}.yml"
     owner: root
     group: root
     mode: "0644"
     validate: /usr/local/bin/promtool check rules %s
+  loop: "{{ prometheus_rule_files }}"
   notify: Reload prometheus
   tags: [prometheus]
 
 - name: Install the alert rules' unit tests
   ansible.builtin.copy:
-    src: tests/beamline-base.test.yml
-    dest: "{{ prometheus_config_dir }}/tests/beamline-base.test.yml"
+    src: "tests/{{ item }}.test.yml"
+    dest: "{{ prometheus_config_dir }}/tests/{{ item }}.test.yml"
     owner: root
     group: root
     mode: "0644"
+  loop: "{{ prometheus_rule_files }}"
   tags: [prometheus]
 
 - name: Run the alert rules' unit tests (a failing test fails the play)
-  ansible.builtin.command: /usr/local/bin/promtool test rules {{ prometheus_config_dir }}/tests/beamline-base.test.yml
+  ansible.builtin.command:
+    argv: "{{ ['/usr/local/bin/promtool', 'test', 'rules'] + (prometheus_rule_files | map('regex_replace', '^(.*)$', prometheus_config_dir ~ '/tests/\\1.test.yml') | list) }}"
   changed_when: false
   # Read-only, so it also runs in check mode, against the installed files. On a first
   # run in check mode those files are only simulated, so it fails there; real runs

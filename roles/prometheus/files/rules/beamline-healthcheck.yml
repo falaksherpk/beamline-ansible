@@ -1,0 +1,39 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Alerts on beamline-healthcheck (role healthcheck: every host, every minute, read
+# through node_exporter's textfile collector). Validated by promtool check rules
+# before they are installed, and exercised by tests/beamline-healthcheck.test.yml.
+groups:
+  - name: beamline-healthcheck
+    rules:
+      # Disk and memory are left to HostDiskSpaceLow/HostMemoryLow (beamline-base),
+      # which come from node_exporter itself and so still work if the health check
+      # breaks: one alert per problem, not two.
+      - alert: BeamlineHealthcheckFailed
+        expr: beamline_healthcheck_check_ok{check!~"disk|memory"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Health check {{ $labels.check }} failing on {{ $labels.instance }}"
+          description: "beamline-healthcheck reports {{ $labels.check }}{{ if $labels.target }} ({{ $labels.target }}){{ end }} failing on {{ $labels.instance }} for more than 5 minutes."
+
+      # The timer runs every minute; node_exporter keeps serving the last file, so a
+      # stopped timer or failing writes show up as an old timestamp, not as no data.
+      - alert: BeamlineHealthcheckStale
+        expr: time() - beamline_healthcheck_last_run_timestamp_seconds > 300
+        labels:
+          severity: warning
+        annotations:
+          summary: "Health check results from {{ $labels.instance }} are stale"
+          description: "The last beamline-healthcheck run on {{ $labels.instance }} was {{ $value | humanizeDuration }} ago; its timer runs it every minute."
+
+      # node_exporter answers but serves no health check at all (never installed,
+      # file removed). A host that is down is TargetDown's, so up == 1 is required.
+      - alert: BeamlineHealthcheckMissing
+        expr: up{job="node"} == 1 unless on(instance) beamline_healthcheck_last_run_timestamp_seconds
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No health check results from {{ $labels.instance }}"
+          description: "node_exporter on {{ $labels.instance }} is up but serves no beamline-healthcheck metrics for more than 5 minutes."

@@ -25,3 +25,5 @@ prometheus_retention_size: 8GB
 prometheus_node_exporter_port: 9100
 # Alertmanager on the same host, loopback only (role alertmanager).
 prometheus_alertmanager_address: "127.0.0.1:9093"
+# Alert rule files: files/rules/<name>.yml, each with files/tests/<name>.test.yml.
+prometheus_rule_files: [beamline-base, beamline-healthcheck]

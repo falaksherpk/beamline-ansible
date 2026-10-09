@@ -1,0 +1,97 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Unit tests for rules/beamline-healthcheck.yml (promtool test rules), run on every
+# converge. Each rule is shown to fire for a synthetic bad series and to stay silent
+# for a good one, including the cases it deliberately leaves to other rules.
+rule_files:
+  - ../rules/beamline-healthcheck.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Failed fires after 5 minutes for load and tcp, never for disk or memory
+    interval: 1m
+    input_series:
+      - series: 'beamline_healthcheck_check_ok{job="node", instance="bad.beamline:9100", check="load", target=""}'
+        values: '0x10'
+      - series: 'beamline_healthcheck_check_ok{job="node", instance="bad.beamline:9100", check="tcp", target="tango-db.beamline:10000"}'
+        values: '0x10'
+      - series: 'beamline_healthcheck_check_ok{job="node", instance="bad.beamline:9100", check="disk", target="/"}'
+        values: '0x10'
+      - series: 'beamline_healthcheck_check_ok{job="node", instance="bad.beamline:9100", check="memory", target=""}'
+        values: '0x10'
+      - series: 'beamline_healthcheck_check_ok{job="node", instance="good.beamline:9100", check="load", target=""}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: BeamlineHealthcheckFailed
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BeamlineHealthcheckFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: bad.beamline:9100
+              check: load
+            exp_annotations:
+              summary: "Health check load failing on bad.beamline:9100"
+              description: "beamline-healthcheck reports load failing on bad.beamline:9100 for more than 5 minutes."
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: bad.beamline:9100
+              check: tcp
+              target: tango-db.beamline:10000
+            exp_annotations:
+              summary: "Health check tcp failing on bad.beamline:9100"
+              description: "beamline-healthcheck reports tcp (tango-db.beamline:10000) failing on bad.beamline:9100 for more than 5 minutes."
+
+  - name: Stale fires once the last run is more than 5 minutes old, not for a fresh host
+    interval: 1m
+    input_series:
+      # Stuck at Unix time 0: the evaluation clock starts at 0, so the age is the eval time.
+      - series: 'beamline_healthcheck_last_run_timestamp_seconds{job="node", instance="stuck.beamline:9100"}'
+        values: '0x10'
+      # Rewritten every minute with the current time.
+      - series: 'beamline_healthcheck_last_run_timestamp_seconds{job="node", instance="fresh.beamline:9100"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: BeamlineHealthcheckStale
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: BeamlineHealthcheckStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: stuck.beamline:9100
+            exp_annotations:
+              summary: "Health check results from stuck.beamline:9100 are stale"
+              description: "The last beamline-healthcheck run on stuck.beamline:9100 was 6m 0s ago; its timer runs it every minute."
+
+  - name: Missing fires after 5 minutes for an up host without results, not for a down host
+    interval: 1m
+    input_series:
+      - series: 'up{job="node", instance="with.beamline:9100"}'
+        values: '1x10'
+      - series: 'beamline_healthcheck_last_run_timestamp_seconds{job="node", instance="with.beamline:9100"}'
+        values: '0+60x10'
+      - series: 'up{job="node", instance="without.beamline:9100"}'
+        values: '1x10'
+      - series: 'up{job="node", instance="down.beamline:9100"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: BeamlineHealthcheckMissing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: BeamlineHealthcheckMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: without.beamline:9100
+            exp_annotations:
+              summary: "No health check results from without.beamline:9100"
+              description: "node_exporter on without.beamline:9100 is up but serves no beamline-healthcheck metrics for more than 5 minutes."
