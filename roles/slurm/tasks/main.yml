@@ -1,7 +1,8 @@
 ---
 # Slurm cluster on hpc-ctl (controller, accounting) and hpc-c1/hpc-gpu (compute)
 # (handbook Part 2, Ch18). Built up in steps, each with its own tag inside the play's
-# 'slurm' tag; this file holds step A: users and MUNGE.
+# 'slurm' tag: step A users and MUNGE (slurm_munge), step B the accounting database
+# (slurm_db).
 
 - name: Refuse unless the MUNGE key exists on the controller (owner-only, at least 32 bytes)
   ansible.builtin.stat:
@@ -93,3 +94,82 @@
     state: started
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [slurm_munge]
+
+# --- Step B: the accounting database (controller only) ---
+
+- name: Install MariaDB and the Python driver the mysql modules need (controller only)
+  ansible.builtin.apt:
+    name:
+      - mariadb-server
+      - python3-pymysql
+    install_recommends: false
+    update_cache: true
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Configure MariaDB for Slurm accounting (socket only, InnoDB settings)
+  ansible.builtin.template:
+    src: 60-slurm.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/60-slurm.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mariadb
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Restart MariaDB now if its configuration changed
+  ansible.builtin.meta: flush_handlers
+  tags: [slurm_db]
+
+- name: Enable and start MariaDB
+  ansible.builtin.systemd_service:
+    name: mariadb
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Remove anonymous database accounts, if any
+  community.mysql.mysql_user:
+    name: ""
+    host_all: true
+    state: absent
+    login_unix_socket: "{{ slurm_db_socket }}"
+    column_case_sensitive: true
+  # In check mode PyMySQL and the server aren't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Remove the test database, if any
+  community.mysql.mysql_db:
+    name: test
+    state: absent
+    login_unix_socket: "{{ slurm_db_socket }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Create the accounting database
+  community.mysql.mysql_db:
+    name: "{{ slurm_db_name }}"
+    state: present
+    login_unix_socket: "{{ slurm_db_socket }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]
+
+- name: Create the slurm database user, authenticated by unix_socket only (no password)
+  community.mysql.mysql_user:
+    name: "{{ slurm_db_user }}"
+    host: localhost
+    plugin: unix_socket
+    priv: "{{ slurm_db_name }}.*:ALL"
+    state: present
+    login_unix_socket: "{{ slurm_db_socket }}"
+    column_case_sensitive: true
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_db]

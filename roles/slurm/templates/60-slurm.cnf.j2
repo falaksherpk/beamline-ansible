@@ -1,0 +1,9 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# Slurm accounting database on {{ inventory_hostname }} (handbook Ch18).
+[mysqld]
+# No TCP at all: slurmdbd and Ansible connect through the unix socket.
+skip-networking
+bind-address = 127.0.0.1
+innodb_buffer_pool_size = {{ slurm_db_innodb_buffer_pool_size }}
+innodb_log_file_size = {{ slurm_db_innodb_log_file_size }}
+innodb_lock_wait_timeout = {{ slurm_db_innodb_lock_wait_timeout }}

@@ -10,3 +10,15 @@ slurm_user_uid: 982
 # (admin.beamline, ~/lab-ca/munge/munge.key, mode 400; backup on beamlinehost in
 # ~/ca-backups/munge-key-2026-10). Read on the controller, outside Git.
 slurm_munge_key_src: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca/munge/munge.key"
+
+# Accounting database (step B): MariaDB on the controller only, reachable through its
+# unix socket alone (skip-networking). The slurm DB user authenticates by unix_socket:
+# only the OS user slurm (slurmdbd's User=) can log in, so slurmdbd.conf holds no password.
+slurm_db_name: slurm_acct_db
+slurm_db_user: slurm
+slurm_db_socket: /run/mysqld/mysqld.sock
+# SchedMD's accounting guide recommends a large buffer pool and a long lock wait timeout;
+# the pool is sized for a 2.4 GiB VM that also runs slurmctld and slurmdbd.
+slurm_db_innodb_buffer_pool_size: 256M
+slurm_db_innodb_log_file_size: 64M
+slurm_db_innodb_lock_wait_timeout: 900

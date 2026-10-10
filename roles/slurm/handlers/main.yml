@@ -7,3 +7,10 @@
     state: restarted
   # In check mode munge isn't installed yet, so the unit doesn't exist.
   ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Restart mariadb
+  ansible.builtin.systemd_service:
+    name: mariadb
+    state: restarted
+  # In check mode mariadb isn't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
