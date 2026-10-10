@@ -2,7 +2,7 @@
 # Slurm cluster on hpc-ctl (controller, accounting) and hpc-c1/hpc-gpu (compute)
 # (handbook Part 2, Ch18). Built up in steps, each with its own tag inside the play's
 # 'slurm' tag: step A users and MUNGE (slurm_munge), step B the accounting database
-# (slurm_db).
+# (slurm_db), step C the shared directory over NFS (slurm_nfs).
 
 - name: Refuse unless the MUNGE key exists on the controller (owner-only, at least 32 bytes)
   ansible.builtin.stat:
@@ -173,3 +173,139 @@
   ignore_errors: "{{ ansible_check_mode }}"
   when: inventory_hostname in groups['hpc_controller']
   tags: [slurm_db]
+
+# --- Step C: the shared directory (NFSv4 from the controller to the compute nodes) ---
+
+- name: Install the NFS server (controller only)
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    install_recommends: false
+    update_cache: true
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+# rpc.mountd reads the same [nfsd] versions. With v2 and v3 off here and rpcbind masked
+# below, it listened on no network port (checked 2026-10-10; the two changes were applied
+# together, so their separate effects were not tested).
+- name: Serve NFSv4 only (v2 and v3 off in nfsd and mountd)
+  community.general.ini_file:
+    path: /etc/nfs.conf
+    section: nfsd
+    option: "{{ item }}"
+    value: "n"
+    mode: "0644"
+  loop: [vers2, vers3]
+  notify: Restart nfs-server
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Serve NFS on the controller's lab address only
+  community.general.ini_file:
+    path: /etc/nfs.conf
+    section: nfsd
+    option: host
+    value: "{{ ansible_host }}"
+    mode: "0644"
+  notify: Restart nfs-server
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Create the shared directory (controller)
+  ansible.builtin.file:
+    path: "{{ slurm_nfs_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Create a private directory per cluster user in the share (controller)
+  ansible.builtin.file:
+    path: "{{ slurm_nfs_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: "0750"
+  loop: "{{ slurm_nfs_users }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Make sure the exports drop-in directory exists (controller)
+  ansible.builtin.file:
+    path: /etc/exports.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Export the shared directory to the compute nodes only
+  ansible.builtin.template:
+    src: hpc.exports.j2
+    dest: /etc/exports.d/hpc.exports
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Re-export NFS shares
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Allow NFS (2049/tcp) from each compute node only
+  community.general.ufw:
+    rule: allow
+    port: "2049"
+    proto: tcp
+    from_ip: "{{ hostvars[item]['ansible_host'] }}"
+    comment: "NFS from {{ item }} (Ch18)"
+  loop: "{{ groups['hpc_compute'] }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Enable and start the NFS server
+  ansible.builtin.systemd_service:
+    name: nfs-server
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_nfs]
+
+- name: Apply NFS server changes now (restart, re-export)
+  ansible.builtin.meta: flush_handlers
+  tags: [slurm_nfs]
+
+- name: Install the NFS client (compute nodes)
+  ansible.builtin.apt:
+    name: nfs-common
+    install_recommends: false
+    update_cache: true
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_nfs]
+
+- name: Mount the shared directory at the same path (compute nodes; automount, so a boot never waits for it)
+  ansible.posix.mount:
+    src: "{{ groups['hpc_controller'][0] }}:{{ slurm_nfs_dir }}"
+    path: "{{ slurm_nfs_dir }}"
+    fstype: nfs4
+    opts: "{{ slurm_nfs_mount_opts }}"
+    state: mounted
+  # fstab changed: let systemd regenerate the mount and automount units.
+  notify: Reload systemd units
+  # In check mode the client tools aren't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_nfs]
+
+# NFSv4 needs neither the portmapper nor NSM (statd); both come with the packages and
+# listen on every address. Masked on server and clients (ufw drops them anyway).
+- name: Stop and mask rpcbind and rpc-statd (not needed for NFSv4)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+  loop: [rpcbind.socket, rpcbind.service, rpc-statd.service]
+  # In check mode the NFS packages (and these units) aren't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [slurm_nfs]

@@ -22,3 +22,11 @@ slurm_db_socket: /run/mysqld/mysqld.sock
 slurm_db_innodb_buffer_pool_size: 256M
 slurm_db_innodb_log_file_size: 64M
 slurm_db_innodb_lock_wait_timeout: 900
+
+# Shared directory (step C): exported by the controller (the only submit host), mounted
+# on the compute nodes at the same path. NFSv4 only (one TCP port, 2049), served on the
+# controller's lab address, reachable by the compute nodes only (ufw). AUTH_SYS: the
+# server trusts the clients' UIDs, which are the same everywhere (falak 1000, slurm 982).
+slurm_nfs_dir: /srv/hpc
+slurm_nfs_users: [falak]
+slurm_nfs_mount_opts: "rw,hard,noatime,_netdev,x-systemd.automount,x-systemd.mount-timeout=30"
