@@ -1,2 +1,12 @@
 ---
-# defaults file for slurm
+# defaults file for slurm (handbook Part 2, Ch18)
+
+# MUNGE and Slurm need the same UID/GID on every node. Created before any package
+# install, so neither munge's postinst nor anything else picks its own number.
+slurm_munge_uid: 981
+slurm_user_uid: 982
+
+# The cluster's single MUNGE key: 128 random bytes, generated once on the controller
+# (admin.beamline, ~/lab-ca/munge/munge.key, mode 400; backup on beamlinehost in
+# ~/ca-backups/munge-key-2026-10). Read on the controller, outside Git.
+slurm_munge_key_src: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca/munge/munge.key"
