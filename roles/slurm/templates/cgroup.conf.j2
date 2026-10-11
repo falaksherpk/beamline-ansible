@@ -1,0 +1,6 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# cgroup settings for Slurm, the same on every HPC node (handbook Ch18; cgroup.conf(5), Slurm 26.05.4).
+CgroupPlugin=cgroup/v2
+ConstrainCores=yes
+ConstrainRAMSpace=yes
+# ConstrainDevices comes with the GPU (Ch20). The VMs have no swap, so no ConstrainSwapSpace.

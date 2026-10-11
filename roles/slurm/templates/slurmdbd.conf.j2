@@ -1,0 +1,13 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# Slurm accounting daemon on {{ inventory_hostname }} (handbook Ch18; slurmdbd.conf(5), Slurm 26.05.4).
+AuthType=auth/munge
+DbdHost={{ inventory_hostname.split('.')[0] }}
+DbdPort={{ slurm_dbd_port }}
+SlurmUser=slurm
+PidFile=/run/slurmdbd/slurmdbd.pid
+StorageType=accounting_storage/mysql
+# MariaDB on this host, through its unix socket only (skip-networking). The database user
+# authenticates by unix_socket as the OS user slurmdbd runs as: there is no StoragePass.
+StorageHost=unix:{{ slurm_db_socket }}
+StorageLoc={{ slurm_db_name }}
+StorageUser={{ slurm_db_user }}

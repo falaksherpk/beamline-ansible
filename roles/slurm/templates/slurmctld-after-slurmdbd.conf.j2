@@ -1,0 +1,6 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# slurmctld registers the cluster with slurmdbd on start; SchedMD's unit doesn't order it
+# after slurmdbd (handbook Ch18).
+[Unit]
+Wants=slurmdbd.service
+After=slurmdbd.service

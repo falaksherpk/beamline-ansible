@@ -1,0 +1,6 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# slurmdbd is Type=simple, so systemd calls it started as soon as it forks. Report it
+# started only once it listens on its port, so units ordered after it (slurmctld) find
+# it ready (handbook Ch18).
+[Service]
+ExecStartPost=/usr/local/sbin/beamline-wait-listen {{ slurm_dbd_port }} 60

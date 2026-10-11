@@ -30,3 +30,28 @@ slurm_db_innodb_lock_wait_timeout: 900
 slurm_nfs_dir: /srv/hpc
 slurm_nfs_users: [falak]
 slurm_nfs_mount_opts: "rw,hard,noatime,_netdev,x-systemd.automount,x-systemd.mount-timeout=30"
+
+# Slurm configuration (step D): written before any Slurm package is installed, because
+# SchedMD's daemon packages start their service on install. Every parameter was checked
+# against the man pages of our own 26.05.4 build (slurm.conf(5), cgroup.conf(5),
+# slurmdbd.conf(5)).
+slurm_cluster_name: beamline
+slurm_ctld_port: 6817
+slurm_slurmd_port: 6818
+slurm_dbd_port: 6819
+# srun listens in this range on whichever HPC node it runs on (hpc-ctl interactively, a
+# compute node inside a batch job); slurmstepd and slurmctld connect back to it.
+slurm_srun_port_range: "60001-60100"
+slurm_state_save_dir: /var/spool/slurmctld
+slurm_slurmd_spool_dir: /var/spool/slurmd
+# Each compute node as it reports itself (lscpu, /proc/meminfo; 2026-10-11). RealMemory
+# must not exceed the reported MemTotal (2479 / 4428 MiB, including the VM's virtio-mem
+# 512 MiB), or the node is drained as invalid; MemSpecLimit keeps part of it for the OS
+# and slurmd.
+slurm_compute_nodes:
+  hpc-c1.beamline: {sockets: 2, cores_per_socket: 1, threads_per_core: 1, real_memory: 2400, mem_spec_limit: 512}
+  hpc-gpu.beamline: {sockets: 2, cores_per_socket: 1, threads_per_core: 1, real_memory: 4300, mem_spec_limit: 512}
+slurm_partition_name: cpu
+slurm_def_mem_per_cpu: 512
+slurm_default_time: "00:30:00"
+slurm_max_time: "04:00:00"

@@ -1,0 +1,45 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# Slurm configuration of the '{{ slurm_cluster_name }}' cluster (handbook Ch18); the same file on every
+# HPC node. Parameters checked against slurm.conf(5) of Slurm 26.05.4 as built here.
+{% set ctl = groups['hpc_controller'][0] %}
+ClusterName={{ slurm_cluster_name }}
+SlurmctldHost={{ ctl.split('.')[0] }}({{ hostvars[ctl]['ansible_host'] }})
+SlurmUser=slurm
+AuthType=auth/munge
+CredType=cred/munge
+SlurmctldPort={{ slurm_ctld_port }}
+SlurmdPort={{ slurm_slurmd_port }}
+SrunPortRange={{ slurm_srun_port_range }}
+StateSaveLocation={{ slurm_state_save_dir }}
+SlurmdSpoolDir={{ slurm_slurmd_spool_dir }}
+
+# The daemons run under systemd and log to the journal (no LogFile). PID files go into
+# each unit's RuntimeDirectory, writable by the user the daemon runs as.
+SlurmctldPidFile=/run/slurmctld/slurmctld.pid
+SlurmdPidFile=/run/slurm/slurmd.pid
+
+# Process tracking, confinement and accounting through cgroup v2 (cgroup.conf).
+ProctrackType=proctrack/cgroup
+TaskPlugin=task/cgroup,task/affinity
+JobAcctGatherType=jobacct_gather/cgroup
+
+# Cores and memory are consumable (also the cons_tres default; stated because
+# RealMemory, MemSpecLimit and ConstrainRAMSpace only work with it).
+SelectType=select/cons_tres
+SelectTypeParameters=CR_Core_Memory
+DefMemPerCPU={{ slurm_def_mem_per_cpu }}
+
+# Accounting through slurmdbd on the controller; a job needs an existing association.
+AccountingStorageType=accounting_storage/slurmdbd
+AccountingStorageHost={{ ctl.split('.')[0] }}
+AccountingStoragePort={{ slurm_dbd_port }}
+AccountingStorageEnforce=associations,limits
+
+# A node that was DOWN for not responding returns when it registers with a valid
+# configuration; DOWN for any other reason, it stays DOWN until an admin resumes it.
+ReturnToService=1
+
+{% for n, c in slurm_compute_nodes.items() %}
+NodeName={{ n.split('.')[0] }} NodeAddr={{ hostvars[n]['ansible_host'] }} Sockets={{ c.sockets }} CoresPerSocket={{ c.cores_per_socket }} ThreadsPerCore={{ c.threads_per_core }} RealMemory={{ c.real_memory }} MemSpecLimit={{ c.mem_spec_limit }} State=UNKNOWN
+{% endfor %}
+PartitionName={{ slurm_partition_name }} Nodes={{ slurm_compute_nodes.keys() | map('regex_replace', '\\..*$', '') | join(',') }} Default=YES DefaultTime={{ slurm_default_time }} MaxTime={{ slurm_max_time }} State=UP

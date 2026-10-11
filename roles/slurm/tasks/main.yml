@@ -2,7 +2,8 @@
 # Slurm cluster on hpc-ctl (controller, accounting) and hpc-c1/hpc-gpu (compute)
 # (handbook Part 2, Ch18). Built up in steps, each with its own tag inside the play's
 # 'slurm' tag: step A users and MUNGE (slurm_munge), step B the accounting database
-# (slurm_db), step C the shared directory over NFS (slurm_nfs).
+# (slurm_db), step C the shared directory over NFS (slurm_nfs), step D the Slurm
+# configuration, unit drop-ins and firewall (slurm_config).
 
 - name: Refuse unless the MUNGE key exists on the controller (owner-only, at least 32 bytes)
   ansible.builtin.stat:
@@ -309,3 +310,144 @@
   # In check mode the NFS packages (and these units) aren't installed yet.
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [slurm_nfs]
+
+# --- Step D: Slurm configuration, in place before any Slurm package (their postinst
+# enables and starts the daemons on install) ---
+
+- name: Create the Slurm configuration directory
+  ansible.builtin.file:
+    path: /etc/slurm
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [slurm_config]
+
+- name: Install slurm.conf (identical on every HPC node)
+  ansible.builtin.template:
+    src: slurm.conf.j2
+    dest: /etc/slurm/slurm.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [slurm_config]
+
+- name: Install cgroup.conf (identical on every HPC node)
+  ansible.builtin.template:
+    src: cgroup.conf.j2
+    dest: /etc/slurm/cgroup.conf
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [slurm_config]
+
+- name: Install slurmdbd.conf (controller only; owner-only, holds no password)
+  ansible.builtin.template:
+    src: slurmdbd.conf.j2
+    dest: /etc/slurm/slurmdbd.conf
+    owner: slurm
+    group: slurm
+    mode: "0600"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Create slurmctld's state directory (controller)
+  ansible.builtin.file:
+    path: "{{ slurm_state_save_dir }}"
+    state: directory
+    owner: slurm
+    group: slurm
+    mode: "0700"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Create slurmd's spool directory (compute nodes)
+  ansible.builtin.file:
+    path: "{{ slurm_slurmd_spool_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_config]
+
+- name: Install the port-wait helper (controller)
+  ansible.builtin.copy:
+    src: beamline-wait-listen
+    dest: /usr/local/sbin/beamline-wait-listen
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Create the drop-in directories for slurmdbd and slurmctld (controller)
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: [slurmdbd, slurmctld]
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+# slurmdbd is Type=simple (active as soon as it forks) and slurmctld isn't ordered after
+# it at all: on a cold boot slurmctld could start before slurmdbd accepts connections.
+- name: Let slurmdbd report "started" only once it listens (controller)
+  ansible.builtin.template:
+    src: slurmdbd-wait-listen.conf.j2
+    dest: /etc/systemd/system/slurmdbd.service.d/beamline-wait-listen.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd units
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Start slurmctld after slurmdbd (controller)
+  ansible.builtin.template:
+    src: slurmctld-after-slurmdbd.conf.j2
+    dest: /etc/systemd/system/slurmctld.service.d/beamline-after-slurmdbd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd units
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Allow slurmctld (tcp) from each compute node (controller)
+  community.general.ufw:
+    rule: allow
+    port: "{{ slurm_ctld_port }}"
+    proto: tcp
+    from_ip: "{{ hostvars[item]['ansible_host'] }}"
+    comment: "slurmctld from {{ item }} (Ch18)"
+  loop: "{{ groups['hpc_compute'] }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_config]
+
+- name: Allow slurmd (tcp) from the other HPC nodes (compute nodes)
+  community.general.ufw:
+    rule: allow
+    port: "{{ slurm_slurmd_port }}"
+    proto: tcp
+    from_ip: "{{ hostvars[item]['ansible_host'] }}"
+    comment: "slurmd from {{ item }} (Ch18)"
+  loop: "{{ groups['hpc'] | difference([inventory_hostname]) }}"
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_config]
+
+- name: Allow srun's port range from the other HPC nodes (every HPC node)
+  community.general.ufw:
+    rule: allow
+    port: "{{ slurm_srun_port_range | replace('-', ':') }}"
+    proto: tcp
+    from_ip: "{{ hostvars[item]['ansible_host'] }}"
+    comment: "srun ports from {{ item }} (Ch18)"
+  loop: "{{ groups['hpc'] | difference([inventory_hostname]) }}"
+  tags: [slurm_config]
+
+- name: Apply unit drop-in changes now
+  ansible.builtin.meta: flush_handlers
+  tags: [slurm_config]

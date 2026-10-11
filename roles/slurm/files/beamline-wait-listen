@@ -1,0 +1,17 @@
+#!/bin/sh
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# Usage: beamline-wait-listen PORT SECONDS
+# Exit 0 as soon as something listens on TCP PORT; exit 1 after SECONDS (handbook Ch18).
+set -eu
+port=$1
+limit=$2
+i=0
+while [ "$i" -lt "$limit" ]; do
+  if ss -Hltn "sport = :$port" | grep -q .; then
+    exit 0
+  fi
+  sleep 1
+  i=$((i + 1))
+done
+echo "beamline-wait-listen: nothing listens on tcp port $port after ${limit}s" >&2
+exit 1
