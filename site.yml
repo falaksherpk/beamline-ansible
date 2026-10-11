@@ -55,6 +55,13 @@
   roles:
     - slurm
 
+- name: Apply the NVIDIA driver to the GPU node
+  hosts: hpc-gpu.beamline
+  become: true
+  tags: [nvidia]
+  roles:
+    - nvidia
+
 - name: Apply Tango Database configuration
   hosts: tango_db
   become: true

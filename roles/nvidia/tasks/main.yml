@@ -1,0 +1,58 @@
+---
+# NVIDIA driver on the GPU node (handbook Part 2, Ch19). Step A: the driver itself
+# (tag nvidia_driver). Check mode works before the first install: the two checks that
+# need the driver are allowed to fail only while the packages would still be installed.
+
+- name: Read the PCI devices from NVIDIA (vendor 10de)
+  ansible.builtin.command:
+    cmd: lspci -n -d '10de:'
+  register: nvidia_lspci
+  changed_when: false
+  check_mode: false
+  tags: [nvidia_driver]
+
+- name: Refuse unless the passed-through GPU is present and the kernel is a generic flavour
+  ansible.builtin.assert:
+    that:
+      - nvidia_lspci.stdout is search(' ' ~ nvidia_gpu_pci_id ~ '( |$)', multiline=True)
+      - ansible_facts['kernel'] is search('-generic$')
+    fail_msg: >-
+      need {{ nvidia_gpu_pci_id }} on the PCI bus (lspci -n -d 10de: shows
+      '{{ nvidia_lspci.stdout }}') and a -generic kernel (running {{ ansible_facts['kernel'] }})
+    quiet: true
+  tags: [nvidia_driver]
+
+- name: Install the driver (prebuilt kernel modules, headless userspace, nvidia-smi)
+  ansible.builtin.apt:
+    name: "{{ nvidia_packages }}"
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+  register: nvidia_install
+  tags: [nvidia_driver]
+
+# udev loads the module at every later boot; this covers the first install without a reboot.
+- name: Load the nvidia kernel module
+  ansible.builtin.command:
+    cmd: modprobe nvidia
+    creates: /sys/module/nvidia
+  tags: [nvidia_driver]
+
+- name: Read the GPU as the driver sees it
+  ansible.builtin.command:
+    cmd: nvidia-smi --query-gpu=name,driver_version,pci.bus_id --format=csv,noheader
+  register: nvidia_smi
+  changed_when: false
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode and nvidia_install is changed }}"
+  tags: [nvidia_driver]
+
+- name: Check that the driver drives the passed-through GPU on the expected branch
+  ansible.builtin.assert:
+    that:
+      - nvidia_smi.stdout is search(nvidia_gpu_name)
+      - nvidia_smi.stdout is search(', ' ~ nvidia_driver_branch ~ '\.')
+    fail_msg: "nvidia-smi: '{{ nvidia_smi.stdout | default('') }}{{ nvidia_smi.stderr | default('') }}'"
+    quiet: true
+  ignore_errors: "{{ ansible_check_mode and nvidia_install is changed }}"
+  tags: [nvidia_driver]

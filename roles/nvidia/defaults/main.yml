@@ -1,0 +1,21 @@
+---
+# defaults file for nvidia (handbook Part 2, Ch19)
+
+# The GPU this role drives: the GeForce GTX 750 Ti (GM107, Maxwell) that beamlinehost
+# passes through to hpc-gpu.beamline (host 01:00.0, bound to vfio-pci there).
+nvidia_gpu_pci_id: "10de:1380"
+nvidia_gpu_name: "GTX 750 Ti"
+
+# 580 is the last NVIDIA driver branch that supports Maxwell; -server is Ubuntu's
+# packaging of NVIDIA's data-centre builds of that branch.
+nvidia_driver_branch: "580"
+nvidia_driver_flavour: "{{ nvidia_driver_branch }}-server"
+
+# Compute only, no display. Canonical's prebuilt, signed kernel modules (no DKMS),
+# whose -generic meta follows the kernel ABI; the headless userspace (libcuda and
+# friends); nvidia-smi. Checked 2026-10-11 with apt-get -s on hpc-gpu: these pull
+# in 19 packages, no other kernel and no linux-firmware.
+nvidia_packages:
+  - "linux-modules-nvidia-{{ nvidia_driver_flavour }}-generic"
+  - "nvidia-headless-no-dkms-{{ nvidia_driver_flavour }}"
+  - "nvidia-utils-{{ nvidia_driver_flavour }}"
