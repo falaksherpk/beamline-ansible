@@ -55,3 +55,13 @@ slurm_partition_name: cpu
 slurm_def_mem_per_cpu: 512
 slurm_default_time: "00:30:00"
 slurm_max_time: "04:00:00"
+
+# Slurm packages and daemons (step E): our own build from the internal repository,
+# installed at exactly this version and held, so an upgrade is always a deliberate step
+# (slurmdbd first, then slurmctld, then slurmd).
+slurm_version: "26.05.4-1"
+slurm_packages_controller: [slurm-smd, slurm-smd-slurmdbd, slurm-smd-slurmctld, slurm-smd-client]
+slurm_packages_compute: [slurm-smd, slurm-smd-slurmd, slurm-smd-client]
+# Accounting: one account for the lab's users; a job needs an association.
+slurm_acct_account: lab
+slurm_acct_users: "{{ slurm_nfs_users }}"

@@ -3,7 +3,8 @@
 # (handbook Part 2, Ch18). Built up in steps, each with its own tag inside the play's
 # 'slurm' tag: step A users and MUNGE (slurm_munge), step B the accounting database
 # (slurm_db), step C the shared directory over NFS (slurm_nfs), step D the Slurm
-# configuration, unit drop-ins and firewall (slurm_config).
+# configuration, unit drop-ins and firewall (slurm_config), step E the packages,
+# daemons and accounting objects (slurm_daemons).
 
 - name: Refuse unless the MUNGE key exists on the controller (owner-only, at least 32 bytes)
   ansible.builtin.stat:
@@ -451,3 +452,128 @@
 - name: Apply unit drop-in changes now
   ansible.builtin.meta: flush_handlers
   tags: [slurm_config]
+
+# --- Step E: the Slurm packages and daemons. Each daemon package starts its daemon on
+# install, so the order is the start order: slurmdbd, slurmctld, then slurmd ---
+
+- name: Install slurmdbd (controller; its postinst starts it with the step-D configuration)
+  ansible.builtin.apt:
+    name:
+      - "slurm-smd={{ slurm_version }}"
+      - "slurm-smd-slurmdbd={{ slurm_version }}"
+    install_recommends: false
+    update_cache: true
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Install slurmctld and the client commands (controller)
+  ansible.builtin.apt:
+    name:
+      - "slurm-smd-slurmctld={{ slurm_version }}"
+      - "slurm-smd-client={{ slurm_version }}"
+    install_recommends: false
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Enable and start slurmdbd and slurmctld (controller)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [slurmdbd, slurmctld]
+  # In check mode the packages (and these units) aren't installed yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Install slurmd and the client commands (compute nodes)
+  ansible.builtin.apt:
+    name:
+      - "slurm-smd={{ slurm_version }}"
+      - "slurm-smd-slurmd={{ slurm_version }}"
+      - "slurm-smd-client={{ slurm_version }}"
+    install_recommends: false
+    update_cache: true
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_daemons]
+
+- name: Enable and start slurmd (compute nodes)
+  ansible.builtin.systemd_service:
+    name: slurmd
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_compute']
+  tags: [slurm_daemons]
+
+- name: Hold the Slurm packages at the deployed version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ slurm_packages_controller if inventory_hostname in groups['hpc_controller'] else slurm_packages_compute }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [slurm_daemons]
+
+# Accounting objects. sacctmgr has no Ansible module: read first, add only what is missing.
+- name: Read the clusters in the accounting database (controller)
+  ansible.builtin.command:
+    cmd: sacctmgr --noheader --parsable2 show cluster format=cluster
+  register: slurm_acct_clusters
+  changed_when: false
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Register the cluster in the accounting database (controller)
+  ansible.builtin.command:
+    cmd: "sacctmgr --immediate add cluster {{ slurm_cluster_name }}"
+  changed_when: true
+  when:
+    - inventory_hostname in groups['hpc_controller']
+    - slurm_cluster_name not in (slurm_acct_clusters.stdout_lines | default([]))
+  tags: [slurm_daemons]
+
+- name: Read the accounts in the accounting database (controller)
+  ansible.builtin.command:
+    cmd: sacctmgr --noheader --parsable2 show account format=account
+  register: slurm_acct_accounts
+  changed_when: false
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Create the lab's account (controller)
+  ansible.builtin.command:
+    cmd: >-
+      sacctmgr --immediate add account {{ slurm_acct_account }}
+      cluster={{ slurm_cluster_name }} description=beamline-lab-users organization=beamline
+  changed_when: true
+  when:
+    - inventory_hostname in groups['hpc_controller']
+    - slurm_acct_account not in (slurm_acct_accounts.stdout_lines | default([]))
+  tags: [slurm_daemons]
+
+- name: Read the users in the accounting database (controller)
+  ansible.builtin.command:
+    cmd: sacctmgr --noheader --parsable2 show user format=user
+  register: slurm_acct_userlist
+  changed_when: false
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode }}"
+  when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Add the lab's users to the account (controller)
+  ansible.builtin.command:
+    cmd: >-
+      sacctmgr --immediate add user {{ item }}
+      account={{ slurm_acct_account }} defaultaccount={{ slurm_acct_account }}
+      cluster={{ slurm_cluster_name }}
+  changed_when: true
+  loop: "{{ slurm_acct_users }}"
+  when:
+    - inventory_hostname in groups['hpc_controller']
+    - item not in (slurm_acct_userlist.stdout_lines | default([]))
+  tags: [slurm_daemons]
