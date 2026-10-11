@@ -30,3 +30,31 @@
 - name: Reload systemd units
   ansible.builtin.systemd_service:
     daemon_reload: true
+
+# Slurm daemons read slurm.conf, cgroup.conf and slurmdbd.conf at start. try-restart restarts
+# a running daemon only, and exits 5 when the unit doesn't exist yet - on a fresh host the
+# step-D files are written before step E installs the packages - which is not an error here.
+# Handlers run in the order listed: slurmdbd, slurmctld, then slurmd.
+- name: Restart slurmdbd
+  ansible.builtin.command:
+    cmd: systemctl try-restart slurmdbd.service
+  register: slurm_tryrestart_dbd
+  changed_when: slurm_tryrestart_dbd.rc == 0
+  failed_when: slurm_tryrestart_dbd.rc not in [0, 5]
+  when: inventory_hostname in groups['hpc_controller']
+
+- name: Restart slurmctld
+  ansible.builtin.command:
+    cmd: systemctl try-restart slurmctld.service
+  register: slurm_tryrestart_ctld
+  changed_when: slurm_tryrestart_ctld.rc == 0
+  failed_when: slurm_tryrestart_ctld.rc not in [0, 5]
+  when: inventory_hostname in groups['hpc_controller']
+
+- name: Restart slurmd
+  ansible.builtin.command:
+    cmd: systemctl try-restart slurmd.service
+  register: slurm_tryrestart_slurmd
+  changed_when: slurm_tryrestart_slurmd.rc == 0
+  failed_when: slurm_tryrestart_slurmd.rc not in [0, 5]
+  when: inventory_hostname in groups['hpc_compute']

@@ -65,3 +65,6 @@ slurm_packages_compute: [slurm-smd, slurm-smd-slurmd, slurm-smd-client]
 # Accounting: one account for the lab's users; a job needs an association.
 slurm_acct_account: lab
 slurm_acct_users: "{{ slurm_nfs_users }}"
+# The mpi/pmix plugins dlopen libpmix.so.2 from /usr/lib/x86_64-linux-gnu/pmix2/lib at
+# run time (read from the plugin binary); Ubuntu's runtime package ships exactly that.
+slurm_pmix_package: libpmix2t64

@@ -331,6 +331,7 @@
     owner: root
     group: root
     mode: "0644"
+  notify: [Restart slurmctld, Restart slurmd]
   tags: [slurm_config]
 
 - name: Install cgroup.conf (identical on every HPC node)
@@ -340,6 +341,7 @@
     owner: root
     group: root
     mode: "0644"
+  notify: Restart slurmd
   tags: [slurm_config]
 
 - name: Install slurmdbd.conf (controller only; owner-only, holds no password)
@@ -349,6 +351,7 @@
     owner: slurm
     group: slurm
     mode: "0600"
+  notify: Restart slurmdbd
   when: inventory_hostname in groups['hpc_controller']
   tags: [slurm_config]
 
@@ -484,6 +487,17 @@
   # In check mode the packages (and these units) aren't installed yet.
   ignore_errors: "{{ ansible_check_mode }}"
   when: inventory_hostname in groups['hpc_controller']
+  tags: [slurm_daemons]
+
+- name: Install the PMIx runtime library the mpi/pmix plugins load (every HPC node)
+  ansible.builtin.apt:
+    name: "{{ slurm_pmix_package }}"
+    install_recommends: false
+    update_cache: true
+  # slurmd loads the MPI plugins at start (a running slurmd must restart to find the
+  # library), and srun on the submit host loads them too: without the library there,
+  # srun --mpi=pmix fails with "can not load PMIx library" (seen in Ch18).
+  notify: Restart slurmd
   tags: [slurm_daemons]
 
 - name: Install slurmd and the client commands (compute nodes)
