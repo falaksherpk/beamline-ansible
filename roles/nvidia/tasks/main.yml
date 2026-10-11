@@ -56,3 +56,59 @@
     quiet: true
   ignore_errors: "{{ ansible_check_mode and nvidia_install is changed }}"
   tags: [nvidia_driver]
+
+# Step B (tag nvidia_persistence): persistence mode on, so the GPU stays initialised
+# between jobs. nvidia-persistenced is started by udev (71-nvidia.rules) when the nvidia
+# driver binds; the packaged ExecStart passes --no-persistence-mode, the drop-in drops it.
+- name: Create the drop-in directory for nvidia-persistenced
+  ansible.builtin.file:
+    path: /etc/systemd/system/nvidia-persistenced.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [nvidia_persistence]
+
+- name: Install the persistence-mode drop-in
+  ansible.builtin.template:
+    src: nvidia-persistenced-persistence-mode.conf.j2
+    dest: /etc/systemd/system/nvidia-persistenced.service.d/persistence-mode.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: nvidia_persistence_dropin
+  notify: Restart nvidia-persistenced
+  tags: [nvidia_persistence]
+
+- name: Restart nvidia-persistenced now if the drop-in changed
+  ansible.builtin.meta: flush_handlers
+  tags: [nvidia_persistence]
+
+- name: Read the persistence mode
+  ansible.builtin.command:
+    cmd: nvidia-smi --query-gpu=persistence_mode --format=csv,noheader
+  register: nvidia_persistence_mode
+  changed_when: false
+  check_mode: false
+  ignore_errors: "{{ ansible_check_mode and ((nvidia_install | default({})) is changed or (nvidia_persistence_dropin | default({})) is changed) }}"
+  tags: [nvidia_persistence]
+
+- name: Check that persistence mode is on
+  ansible.builtin.assert:
+    that:
+      - nvidia_persistence_mode.stdout | trim == 'Enabled'
+    fail_msg: "nvidia-smi persistence_mode: '{{ nvidia_persistence_mode.stdout | default('') }}'"
+    quiet: true
+  ignore_errors: "{{ ansible_check_mode and ((nvidia_install | default({})) is changed or (nvidia_persistence_dropin | default({})) is changed) }}"
+  tags: [nvidia_persistence]
+
+# Step C (tag nvidia_updates): keep the kernel and the driver out of unattended-upgrades.
+# Every other security update stays automatic.
+- name: Keep the kernel and the NVIDIA driver out of unattended-upgrades
+  ansible.builtin.template:
+    src: 51unattended-upgrades-nvidia.j2
+    dest: /etc/apt/apt.conf.d/51unattended-upgrades-nvidia
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [nvidia_updates]

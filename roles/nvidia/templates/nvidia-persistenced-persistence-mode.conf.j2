@@ -1,0 +1,6 @@
+# Managed by Ansible (beamline-ansible, role nvidia) - do not edit on the host.
+# Persistence mode on (handbook Part 2, Ch19): the packaged ExecStart passes
+# --no-persistence-mode; this replaces it with the same command without that flag.
+[Service]
+ExecStart=
+ExecStart=/usr/bin/nvidia-persistenced --user nvidia-persistenced --verbose

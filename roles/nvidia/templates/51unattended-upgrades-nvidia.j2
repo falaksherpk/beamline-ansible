@@ -1,0 +1,9 @@
+// Managed by Ansible (beamline-ansible, role nvidia) - do not edit on the host.
+// Handbook Part 2, Ch19: the kernel and the NVIDIA driver on this GPU node are upgraded
+// together, on purpose, never by unattended-upgrades. Each entry is a regex matched
+// at the start of the package name. Every other security update stays automatic.
+Unattended-Upgrade::Package-Blacklist {
+{% for p in nvidia_unattended_blacklist %}
+    "{{ p }}";
+{% endfor %}
+};

@@ -19,3 +19,14 @@ nvidia_packages:
   - "linux-modules-nvidia-{{ nvidia_driver_flavour }}-generic"
   - "nvidia-headless-no-dkms-{{ nvidia_driver_flavour }}"
   - "nvidia-utils-{{ nvidia_driver_flavour }}"
+
+# Step C: packages unattended-upgrades must never touch on this node. The kernel and the
+# driver are upgraded together, on purpose (an Ansible run, then a Slurm-aware reboot);
+# a half-done upgrade leaves the GPU unusable until a reboot (driver/library mismatch,
+# or a new kernel without matching modules). unattended-upgrades 2.9.1 matches each
+# entry as a Python regex at the start of the package name (re.match). "linux-" covers
+# the kernel images, modules and headers and the linux-*-nvidia-* module packages.
+nvidia_unattended_blacklist:
+  - "linux-"
+  - "nvidia-"
+  - "libnvidia-"

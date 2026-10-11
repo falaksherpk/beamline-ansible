@@ -1,0 +1,8 @@
+---
+# handlers file for nvidia (handbook Part 2, Ch19)
+
+- name: Restart nvidia-persistenced
+  ansible.builtin.systemd_service:
+    name: nvidia-persistenced
+    state: restarted
+    daemon_reload: true
