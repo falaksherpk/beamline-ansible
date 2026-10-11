@@ -39,6 +39,11 @@ AccountingStorageEnforce=associations,limits
 # configuration; DOWN for any other reason, it stays DOWN until an admin resumes it.
 ReturnToService=1
 
+# No mail system in the lab (as for Alertmanager, Ch16): job mail is deliberately off.
+# The default /bin/mail doesn't exist here (slurmctld: "Configured MailProg is
+# invalid"); with /usr/bin/true, --mail-type requests are accepted and go nowhere.
+MailProg=/usr/bin/true
+
 {% for n, c in slurm_compute_nodes.items() %}
 NodeName={{ n.split('.')[0] }} NodeAddr={{ hostvars[n]['ansible_host'] }} Sockets={{ c.sockets }} CoresPerSocket={{ c.cores_per_socket }} ThreadsPerCore={{ c.threads_per_core }} RealMemory={{ c.real_memory }} MemSpecLimit={{ c.mem_spec_limit }} State=UNKNOWN
 {% endfor %}
