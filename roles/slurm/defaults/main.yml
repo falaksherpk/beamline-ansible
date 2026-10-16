@@ -68,3 +68,19 @@ slurm_acct_users: "{{ slurm_nfs_users }}"
 # The mpi/pmix plugins dlopen libpmix.so.2 from /usr/lib/x86_64-linux-gnu/pmix2/lib at
 # run time (read from the plugin binary); Ubuntu's runtime package ships exactly that.
 slurm_pmix_package: libpmix2t64
+
+# GPU scheduling (step H, Ch20). gres.conf on every HPC node; each GPU line names its node.
+# AutoDetect=nvidia (plugin gpu/nvidia, no NVML library needed; this build has no gpu/nvml)
+# finds the card; type and file are the sanity check: if they don't match what is detected,
+# slurmd reports the node invalid and it is drained. The type must be a substring of the
+# detected name (nvidia_geforce_gtx_750_ti, from slurmd -C on 2026-10-16).
+slurm_gres_types: [gpu]
+slurm_gpu_nodes:
+  hpc-gpu.beamline: {type: gtx_750_ti, file: /dev/nvidia0, autodetect: nvidia}
+# The default TRES can only be appended to; gres/gpu also adds gres/gpumem and gres/gpuutil.
+slurm_accounting_tres: [gres/gpu]
+# scontrol reboot runs this on an idle node (as slurmd, i.e. root). A node that doesn't come
+# back within ResumeTimeout is marked DOWN; the default is 60 s, a drained reboot of hpc-gpu
+# took about 36 s from drain to slurmd's re-registration (2026-10-16).
+slurm_reboot_program: /usr/sbin/reboot
+slurm_resume_timeout: 180

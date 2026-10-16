@@ -1,0 +1,7 @@
+# Managed by Ansible (beamline-ansible, role slurm) - do not edit on the host.
+# Generic resources (handbook Ch20; gres.conf(5), Slurm 26.05.4); the same file on every HPC
+# node, each line names its node. AutoDetect=nvidia finds the GPU without NVML; Type and File
+# are checked against what it detects, and a mismatch makes the node invalid (drained).
+{% for n, g in slurm_gpu_nodes.items() %}
+NodeName={{ n.split('.')[0] }} AutoDetect={{ g.autodetect }} Name=gpu Type={{ g.type }} File={{ g.file }}
+{% endfor %}

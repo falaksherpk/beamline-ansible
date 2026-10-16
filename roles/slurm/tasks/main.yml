@@ -344,6 +344,16 @@
   notify: Restart slurmd
   tags: [slurm_config]
 
+- name: Install gres.conf (identical on every HPC node; GPU lines name their node)
+  ansible.builtin.template:
+    src: gres.conf.j2
+    dest: /etc/slurm/gres.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart slurmd
+  tags: [slurm_config]
+
 - name: Install slurmdbd.conf (controller only; owner-only, holds no password)
   ansible.builtin.template:
     src: slurmdbd.conf.j2
