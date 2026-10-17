@@ -1,0 +1,218 @@
+---
+# Upgrade one Slurm GPU node: the kernel and Canonical's prebuilt NVIDIA module
+# together, then a reboot through Slurm (handbook Part 2, Ch21). Run from admin,
+# never as part of site.yml: it upgrades packages and may reboot the node.
+#
+#   ansible-playbook gpu-node-upgrade.yml --check   # what would change; no reboot
+#   ansible-playbook gpu-node-upgrade.yml           # upgrade; reboot only if needed
+#   ansible-playbook gpu-node-upgrade.yml -e gpu_upgrade_force_reboot=true
+#
+# The node's unattended-upgrades never touches linux-/nvidia-/libnvidia- (role
+# nvidia, Ch19), so this is the only path for kernel and driver updates there.
+# Afterwards, run fleet-check --slow: a dist-upgrade can also move packages that
+# other roles pin (Ch21: beamline-healthcheck).
+
+- name: Upgrade a Slurm GPU node and reboot it through Slurm
+  hosts: "{{ gpu_upgrade_target | default('hpc-gpu.beamline') }}"
+  become: true
+  serial: 1
+  vars_files:
+    - roles/nvidia/defaults/main.yml
+  vars:
+    gpu_upgrade_controller: "{{ groups['hpc_controller'] | first }}"
+    gpu_upgrade_node: "{{ inventory_hostname_short }}"
+    gpu_upgrade_force_reboot: false
+    gpu_upgrade_reboot_timeout: 300
+    gpu_upgrade_reason: "kernel/NVIDIA upgrade (gpu-node-upgrade.yml)"
+  tasks:
+    - name: Read the node's Slurm state on the controller
+      ansible.builtin.command:
+        argv: [scontrol, show, nodes, --json, "{{ gpu_upgrade_node }}"]
+      delegate_to: "{{ gpu_upgrade_controller }}"
+      become: false
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_before
+
+    - name: Read the node's jobs on the controller
+      ansible.builtin.command:
+        argv: [squeue, --noheader, --nodelist, "{{ gpu_upgrade_node }}", --format, "%i %T"]
+      delegate_to: "{{ gpu_upgrade_controller }}"
+      become: false
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_jobs
+
+    - name: Record the node's state before the upgrade
+      ansible.builtin.set_fact:
+        gpu_upgrade_state0: "{{ _n.state }}"
+        gpu_upgrade_boot0: "{{ (_n.boot_time.number if _n.boot_time is mapping else _n.boot_time) | int }}"
+        gpu_upgrade_slurmd0: "{{ (_n.slurmd_start_time.number if _n.slurmd_start_time is mapping else _n.slurmd_start_time) | int }}"
+      vars:
+        _n: "{{ (gpu_upgrade_before.stdout | from_json).nodes[0] }}"
+
+    - name: Refuse unless the node is plain IDLE with no job on it
+      ansible.builtin.assert:
+        that:
+          - gpu_upgrade_state0 == ['IDLE']
+          - gpu_upgrade_jobs.stdout | trim == ''
+        fail_msg: >-
+          {{ gpu_upgrade_node }}: state {{ gpu_upgrade_state0 | join('+') }},
+          jobs: {{ gpu_upgrade_jobs.stdout_lines | join('; ') | default('none', true) }}
+        quiet: true
+
+    - name: Update the package lists
+      ansible.builtin.apt:
+        update_cache: true
+        lock_timeout: 120
+      # A refreshed cache is not a change to the node; without this the play
+      # would never report changed=0.
+      changed_when: false
+
+    - name: Simulate the full upgrade
+      ansible.builtin.command:
+        argv: [apt-get, --simulate, dist-upgrade]
+      environment:
+        LC_ALL: C.UTF-8
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_sim
+
+    - name: Read the new kernels and the removals from the simulation
+      ansible.builtin.set_fact:
+        gpu_upgrade_new_kernels: "{{ gpu_upgrade_sim.stdout | regex_findall('^Inst linux-image-(\\S+-generic) ', multiline=True) }}"
+        gpu_upgrade_removals: "{{ gpu_upgrade_sim.stdout | regex_findall('^Remv (\\S+)', multiline=True) }}"
+
+    - name: Refuse a new kernel without its NVIDIA module, and any removal
+      ansible.builtin.assert:
+        that:
+          - gpu_upgrade_removals | length == 0
+          - ('Inst linux-modules-nvidia-' ~ nvidia_driver_flavour ~ '-' ~ item ~ ' ') in gpu_upgrade_sim.stdout
+        fail_msg: >-
+          kernel {{ item }}: {{ 'linux-modules-nvidia-' ~ nvidia_driver_flavour ~ '-' ~ item }}
+          is not in the simulation, or it removes packages: {{ gpu_upgrade_removals }}
+        quiet: true
+      loop: "{{ gpu_upgrade_new_kernels }}"
+
+    - name: Upgrade every package (no service restarts; the reboot follows)
+      ansible.builtin.apt:
+        upgrade: dist
+        lock_timeout: 120
+        dpkg_options: force-confdef,force-confold
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        NEEDRESTART_MODE: l
+      register: gpu_upgrade_apt
+
+    - name: Find the kernel the next boot will use
+      ansible.builtin.stat:
+        path: /boot/vmlinuz
+      register: gpu_upgrade_vmlinuz
+
+    - name: Read the NVIDIA module built for that kernel
+      ansible.builtin.command:
+        argv: [modinfo, -k, "{{ gpu_upgrade_boot_kernel }}", -F, vermagic, nvidia]
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_vermagic
+      vars:
+        gpu_upgrade_boot_kernel: "{{ gpu_upgrade_vmlinuz.stat.lnk_target | regex_replace('^.*vmlinuz-', '') }}"
+
+    - name: Check whether a package asked for a reboot
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: gpu_upgrade_reboot_required
+
+    - name: Record the boot kernel, and whether a reboot is needed
+      ansible.builtin.set_fact:
+        gpu_upgrade_boot_kernel: "{{ _k }}"
+        gpu_upgrade_reboot: "{{ gpu_upgrade_force_reboot | bool or gpu_upgrade_reboot_required.stat.exists or ansible_facts['kernel'] != _k }}"
+      vars:
+        _k: "{{ gpu_upgrade_vmlinuz.stat.lnk_target | regex_replace('^.*vmlinuz-', '') }}"
+
+    - name: Refuse to reboot into a kernel without a matching NVIDIA module
+      ansible.builtin.assert:
+        that:
+          - gpu_upgrade_vermagic.stdout.startswith(gpu_upgrade_boot_kernel ~ ' ')
+        fail_msg: "nvidia.ko for {{ gpu_upgrade_boot_kernel }} has vermagic '{{ gpu_upgrade_vermagic.stdout }}'"
+        success_msg: "next boot: {{ gpu_upgrade_boot_kernel }} with nvidia.ko ({{ gpu_upgrade_vermagic.stdout }}); reboot needed: {{ gpu_upgrade_reboot }}"
+
+    - name: Reboot through Slurm, and wait until the node is back in service
+      when:
+        - gpu_upgrade_reboot | bool
+        - not ansible_check_mode
+      block:
+        - name: Ask Slurm to reboot the node once idle, and resume it afterwards
+          ansible.builtin.command:
+            argv: [scontrol, reboot, nextstate=resume, "reason={{ gpu_upgrade_reason }}", "{{ gpu_upgrade_node }}"]
+          delegate_to: "{{ gpu_upgrade_controller }}"
+          changed_when: true
+
+        - name: Wait for a new boot, a restarted slurmd and plain IDLE
+          ansible.builtin.command:
+            argv: [scontrol, show, nodes, --json, "{{ gpu_upgrade_node }}"]
+          delegate_to: "{{ gpu_upgrade_controller }}"
+          become: false
+          changed_when: false
+          register: gpu_upgrade_after
+          retries: "{{ (gpu_upgrade_reboot_timeout | int / 5) | int }}"
+          delay: 5
+          until: >-
+            (gpu_upgrade_after.stdout | from_json).nodes[0].state == ['IDLE']
+            and ((gpu_upgrade_after.stdout | from_json).nodes[0].boot_time.number
+                 | default((gpu_upgrade_after.stdout | from_json).nodes[0].boot_time) | int) > gpu_upgrade_boot0 | int
+            and ((gpu_upgrade_after.stdout | from_json).nodes[0].slurmd_start_time.number
+                 | default((gpu_upgrade_after.stdout | from_json).nodes[0].slurmd_start_time) | int) > gpu_upgrade_slurmd0 | int
+
+        - name: Wait until Ansible can reach the node again
+          ansible.builtin.wait_for_connection:
+            timeout: 120
+
+        - name: Read the facts of the new boot
+          ansible.builtin.setup:
+            gather_subset: [min]
+
+    - name: Read the GPU as the driver reports it
+      ansible.builtin.command:
+        argv:
+          - nvidia-smi
+          - --query-gpu=name,driver_version,persistence_mode
+          - --format=csv,noheader
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_smi
+
+    - name: Read the loaded NVIDIA module's file
+      ansible.builtin.command:
+        argv: [modinfo, -F, filename, nvidia]
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_loaded
+
+    - name: Read the node's Slurm state after the upgrade
+      ansible.builtin.command:
+        argv: [scontrol, show, nodes, --json, "{{ gpu_upgrade_node }}"]
+      delegate_to: "{{ gpu_upgrade_controller }}"
+      become: false
+      changed_when: false
+      check_mode: false
+      register: gpu_upgrade_final
+
+    - name: Prove the result (running kernel, loaded module, GPU, Slurm)
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or ansible_facts['kernel'] == gpu_upgrade_boot_kernel
+          - ('/lib/modules/' ~ ansible_facts['kernel'] ~ '/') in gpu_upgrade_loaded.stdout
+          - nvidia_gpu_name in gpu_upgrade_smi.stdout
+          - gpu_upgrade_smi.stdout is search(', Enabled$')
+          - _n.state == ['IDLE']
+          - _n.gres is match('gpu:')
+        fail_msg: >-
+          kernel {{ ansible_facts['kernel'] }} (want {{ gpu_upgrade_boot_kernel }}),
+          module {{ gpu_upgrade_loaded.stdout }}, GPU '{{ gpu_upgrade_smi.stdout }}',
+          Slurm {{ _n.state | join('+') }} gres '{{ _n.gres }}'
+        success_msg: >-
+          kernel {{ ansible_facts['kernel'] }}, module {{ gpu_upgrade_loaded.stdout }},
+          GPU '{{ gpu_upgrade_smi.stdout }}', Slurm {{ _n.state | join('+') }} gres '{{ _n.gres }}'
+      vars:
+        _n: "{{ (gpu_upgrade_final.stdout | from_json).nodes[0] }}"
