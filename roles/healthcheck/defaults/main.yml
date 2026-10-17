@@ -5,7 +5,11 @@
 
 # Pinned; only the internal repository ships it, and unattended-upgrades takes
 # Ubuntu origins only (checked: our Release has o=Beamline Lab), so no hold.
-healthcheck_version: "1.0.0"
+# The repository keeps one version (reprepro), so this pin must follow every release:
+# a pin it no longer serves fails on any host without exactly that version installed
+# (a rebuilt host, or one upgraded by hand). Found 2026-10-17: 1.0.0 was gone since
+# the 1.0.1 release (Ch17), and a dist-upgrade on hpc-gpu brought 1.0.1.
+healthcheck_version: "1.0.1"
 healthcheck_user: beamline-healthcheck
 # Members may create files in the textfile directory; its sticky bit stops them
 # from deleting or replacing each other's files.
