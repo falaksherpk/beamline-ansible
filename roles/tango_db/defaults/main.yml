@@ -1,2 +1,29 @@
 ---
-# defaults file for roles/tango_db
+# defaults file for tango_db (handbook Part 3, Ch23)
+
+# MariaDB first, in its own task: tango-db's postinst runs dbconfig-common, which
+# needs a running server. tango_admin is in libtango-tools, not tango-common.
+tango_db_server_packages:
+  - mariadb-server
+tango_db_packages:
+  # Named explicitly: tango-db depends on "dbconfig-mysql | dbconfig-no-thanks", and with
+  # MariaDB already installed apt picks dbconfig-no-thanks, which skips the database
+  # setup entirely (seen in the Ch23 sandbox test).
+  - dbconfig-mysql
+  - tango-db
+  - tango-common
+  - libtango-tools
+
+# dbconfig-common's answers for tango-db (version 2.0.24 templates; these equal its
+# defaults, preseeded so the outcome is stated here). The application password is
+# left unset on purpose: dbconfig then generates one (12 random alphanumerics) and
+# writes it to /var/lib/tango/.my.cnf (mode 600). Admin access is root over the socket.
+tango_db_debconf:
+  - { question: tango-db/dbconfig-install, vtype: boolean, value: "true" }
+  - { question: tango-db/database-type, vtype: select, value: mysql }
+  - { question: tango-db/mysql/method, vtype: select, value: Unix socket }
+
+# The database's MariaDB schema, and who may reach DataBaseds.
+tango_db_schema: tango
+tango_db_port: 10000
+tango_db_allowed_from: 10.10.10.0/24

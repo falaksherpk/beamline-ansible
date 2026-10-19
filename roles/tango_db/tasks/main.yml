@@ -1,29 +1,102 @@
-#SPDX-License-Identifier: MIT-0
+# SPDX-License-Identifier: MIT-0
 ---
-# tasks file for tango_db
+# tasks file for tango_db (handbook Part 3, Ch23)
 #
-# This host runs ONLY the Tango Database (device registry) + its MySQL
-# backend. Device servers, PyTango, and protocol simulators all live on
-# tango-ds.beamline instead (see roles/tango_ds) -- see
-# TANGO_Handson_Handbook_Plan.md Part 0 for why the split matters.
+# This host runs ONLY the Tango Database (DataBaseds) and its MariaDB backend.
+# Device servers, PyTango and the simulators live on tango-ds.beamline (roles/tango_ds).
+#
+# Check mode works before the first install: the tasks that need the installed packages
+# (the two services, the schema query) may fail only while those packages would still be
+# installed (failed_when below). A real run fails on any error.
 
-- name: Ensure the Tango Database and common Tango packages are installed
+- name: Preseed dbconfig-common's answers for tango-db
+  ansible.builtin.debconf:
+    name: tango-db
+    question: "{{ item.question }}"
+    vtype: "{{ item.vtype }}"
+    value: "{{ item.value }}"
+  loop: "{{ tango_db_debconf }}"
+  loop_control:
+    label: "{{ item.question }}"
+
+- name: Install MariaDB (before tango-db, whose postinst needs a running server)
   ansible.builtin.apt:
-    name:
-      - tango-db
-      - tango-common
-      - mariadb-server
+    name: "{{ tango_db_server_packages }}"
     state: present
     update_cache: true
+    cache_valid_time: 3600
+  register: tango_db_server_install
+
+- name: Ensure MariaDB is running and enabled
+  ansible.builtin.systemd_service:
+    name: mariadb
+    state: started
+    enabled: true
+  register: tango_db_mariadb_service
+  failed_when:
+    - tango_db_mariadb_service is failed
+    - not (ansible_check_mode and tango_db_server_install is changed)
+
+- name: Install the Tango Database, the common Tango files and tango_admin
+  ansible.builtin.apt:
+    name: "{{ tango_db_packages }}"
+    state: present
+  register: tango_db_install
 
 - name: Ensure the tango-db service is running and enabled
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
     name: tango-db
     state: started
     enabled: true
+  register: tango_db_service
+  failed_when:
+    - tango_db_service is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_install is changed))
 
-- name: Allow the Tango Database port through the firewall
+# The Debian tango-db schema has TIMESTAMP NOT NULL columns without a default. MariaDB
+# 10.11 (explicit_defaults_for_timestamp on) gives them none, so the first INSERT that
+# omits them fails ("Field 'date' doesn't have a default value"; found in Sept 2026 when
+# Sardana wrote memorized-attribute history). Every such column gets
+# DEFAULT CURRENT_TIMESTAMP, keeping ON UPDATE where it is set. Plain command + the mariadb
+# client over the root socket: no extra collection needed on the control node.
+- name: Find TIMESTAMP NOT NULL columns without a default in the Tango schema
+  ansible.builtin.command:
+    argv:
+      - mariadb
+      - --batch
+      - --skip-column-names
+      - --execute
+      - >-
+        SELECT CONCAT('ALTER TABLE `', TABLE_NAME, '` MODIFY `', COLUMN_NAME,
+        '` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        IF(EXTRA LIKE '%on update%', ' ON UPDATE CURRENT_TIMESTAMP', ''))
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = '{{ tango_db_schema }}' AND DATA_TYPE = 'timestamp'
+        AND IS_NULLABLE = 'NO' AND COLUMN_DEFAULT IS NULL
+        ORDER BY TABLE_NAME, COLUMN_NAME
+  register: tango_db_timestamp_fixes
+  changed_when: false
+  check_mode: false
+  failed_when:
+    - tango_db_timestamp_fixes.rc | default(1) != 0
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_install is changed))
+
+- name: Give those columns DEFAULT CURRENT_TIMESTAMP
+  ansible.builtin.command:
+    argv:
+      - mariadb
+      - "{{ tango_db_schema }}"
+      - --execute
+      - "{{ tango_db_timestamp_fixes.stdout_lines | join('; ') }}"
+  when:
+    - tango_db_timestamp_fixes.rc | default(1) == 0
+    - tango_db_timestamp_fixes.stdout_lines | length > 0
+  changed_when: true
+
+- name: Allow the Tango Database port from the lab network
   community.general.ufw:
     rule: allow
-    port: "10000"
+    port: "{{ tango_db_port | string }}"
     proto: tcp
+    from_ip: "{{ tango_db_allowed_from }}"
+    comment: Tango Database (DataBaseds), lab network (Ch23)
