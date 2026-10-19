@@ -24,7 +24,11 @@
 - name: Install PyTango and the Python packages the devices and tests use (pinned)
   ansible.builtin.pip:
     name: "{{ tango_ds_pip_packages }}"
-    extra_args: --break-system-packages
+  # PIP_BREAK_SYSTEM_PACKAGES rather than extra_args: with any extra_args the pip
+  # module reports "changed" in check mode without looking at what is installed,
+  # so the fleet drift check could never pass for this task (Ch23).
+  environment:
+    PIP_BREAK_SYSTEM_PACKAGES: "1"
   register: tango_ds_pip
   failed_when:
     - tango_ds_pip is failed
