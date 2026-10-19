@@ -1,109 +1,113 @@
-#SPDX-License-Identifier: MIT-0
+# SPDX-License-Identifier: MIT-0
 ---
-# tasks file for tango_ds
+# tasks file for tango_ds (handbook Part 3, Ch23)
 #
-# This host runs everything except the Tango Database itself: client
-# libraries, PyTango, the C++/cppTango toolchain, and every protocol
-# simulator / streaming tool used in Parts 1-3 of
-# TANGO_Handson_Handbook_Plan.md. tango-db is deliberately NOT installed
-# here -- that only goes on tango-db.beamline (see roles/tango_db).
+# This host runs everything except the Tango Database itself (roles/tango_db): the Tango
+# client side, PyTango and the device servers, their protocol simulators, Jive.
+#
+# Check mode works before the first install: the tasks that need packages this role
+# installs (pip, the redis service) may fail only while those packages would still be
+# installed (failed_when below). A real run fails on any error.
 
-- name: Ensure Tango client libraries and common packages are installed
+# No recommends: python3-pip recommends build-essential and python3-dev, which would bring a
+# C/C++ toolchain back onto this host (11 compiler/dev packages, Ch23 gate 1). Every pip
+# package here installs from a binary wheel, so none of them is needed.
+- name: Install the Tango client side, the simulators' tools and the debugging tools
   ansible.builtin.apt:
-    name:
-      - tango-common
-      - libtango-tools
-      - build-essential
-      - libtango-dev
-      - cmake
-      - socat
-      - redis-server
-      - podman
+    name: "{{ tango_ds_apt_packages }}"
     state: present
+    install_recommends: false
     update_cache: true
+    cache_valid_time: 3600
+  register: tango_ds_apt
 
-- name: Ensure pip is available for Python package installs
-  ansible.builtin.apt:
-    name: python3-pip
-    state: present
-
-- name: Ensure PyTango and protocol/streaming Python packages are installed
+- name: Install PyTango and the Python packages the devices and tests use (pinned)
   ansible.builtin.pip:
-    name:
-      - pytango
-      - pymodbus
-      - pyserial
-      - pyzmq
-      - redis
-      - pytest
-      - pyvisa
-      - pyvisa-sim
+    name: "{{ tango_ds_pip_packages }}"
     extra_args: --break-system-packages
+  register: tango_ds_pip
+  failed_when:
+    - tango_ds_pip is failed
+    - not (ansible_check_mode and tango_ds_apt is changed)
 
-- name: Ensure ruff is installed for TANGO device-server linting
-  ansible.builtin.pip:
-    name:
-      - ruff==0.16.5
-    extra_args: --break-system-packages
-
-- name: Set TANGO_HOST in /etc/environment so device servers/clients can find the DB
+- name: Set TANGO_HOST in /etc/environment so device servers and clients find the database
   ansible.builtin.lineinfile:
     path: /etc/environment
     regexp: '^TANGO_HOST='
-    line: "TANGO_HOST=tango-db.beamline:10000"
+    line: "TANGO_HOST={{ tango_ds_tango_host }}"
 
-- name: Ensure redis-server is running and enabled
-  ansible.builtin.systemd:
+- name: Ensure redis-server is running and enabled (until the devices drop Redis, Ch24-27)
+  ansible.builtin.systemd_service:
     name: redis-server
     state: started
     enabled: true
+  register: tango_ds_redis
+  failed_when:
+    - tango_ds_redis is failed
+    - not (ansible_check_mode and tango_ds_apt is changed)
 
-# --- Jive (TANGO DB browser/admin GUI) -------------------------------------
-# Jive is a Java/Swing app; the stock Debian/Ubuntu tango packages do NOT
-# ship it (confirmed against current TANGO 10.0.0 docs). Installed here via
-# conda-forge's prebuilt 'jive' package, into its own dedicated conda
-# environment ('tango-gui') kept isolated from the apt/pip-managed PyTango
-# toolchain used everywhere else on this host. conda-forge's jive package
-# pulls in its own openjdk, so no separate JRE apt package is installed here.
-- name: Check whether Miniforge is already installed
+# --- Jive (Tango database browser) -----------------------------------------------------
+# Jive is a Java/Swing application that the Debian/Ubuntu Tango packages don't ship. It
+# comes from conda-forge, with its own OpenJDK, in a dedicated environment kept apart from
+# the apt/pip PyTango toolchain above.
+- name: Check whether Miniforge is installed
   ansible.builtin.stat:
-    path: /opt/miniforge3/bin/conda
-  register: miniforge_installed
+    path: "{{ tango_ds_miniforge_prefix }}/bin/conda"
+  register: tango_ds_conda
 
-- name: Download Miniforge installer
+- name: Download the pinned Miniforge installer, verified against its published SHA-256
   ansible.builtin.get_url:
-    url: https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
-    dest: /tmp/miniforge.sh
-    mode: '0755'
-  when: not miniforge_installed.stat.exists
+    url: "{{ tango_ds_miniforge_url }}"
+    dest: "/var/tmp/{{ tango_ds_miniforge_installer }}"
+    checksum: "sha256:{{ tango_ds_miniforge_sha256 }}"
+    mode: "0700"
+  when: not tango_ds_conda.stat.exists
 
-- name: Install Miniforge into /opt/miniforge3
-  ansible.builtin.command: /tmp/miniforge.sh -b -p /opt/miniforge3
-  when: not miniforge_installed.stat.exists
+- name: Install Miniforge
+  ansible.builtin.command:
+    argv:
+      - /bin/bash
+      - "/var/tmp/{{ tango_ds_miniforge_installer }}"
+      - -b
+      - -p
+      - "{{ tango_ds_miniforge_prefix }}"
+    creates: "{{ tango_ds_miniforge_prefix }}/bin/conda"
+  register: tango_ds_miniforge_install
 
-- name: Ensure /opt/miniforge3 is readable/usable by all users
+- name: Remove the Miniforge installer
   ansible.builtin.file:
-    path: /opt/miniforge3
-    mode: '0755'
-    recurse: false
+    path: "/var/tmp/{{ tango_ds_miniforge_installer }}"
+    state: absent
 
-- name: Check whether Jive conda environment already exists
-  ansible.builtin.stat:
-    path: /opt/miniforge3/envs/tango-gui/bin/jive
-  register: jive_installed
+- name: Ensure Miniforge is readable and usable by all users
+  ansible.builtin.file:
+    path: "{{ tango_ds_miniforge_prefix }}"
+    mode: "0755"
+  when: >-
+    tango_ds_conda.stat.exists or
+    (tango_ds_miniforge_install is changed and not ansible_check_mode)
 
-- name: Create dedicated conda environment and install Jive from conda-forge
-  ansible.builtin.command: >
-    /opt/miniforge3/bin/conda create -y -n tango-gui -c conda-forge jive
-  when: not jive_installed.stat.exists
+- name: Create the Jive environment from conda-forge (pinned Jive)
+  ansible.builtin.command:
+    argv:
+      - "{{ tango_ds_miniforge_prefix }}/bin/conda"
+      - create
+      - --yes
+      - --name
+      - "{{ tango_ds_jive_env }}"
+      - --channel
+      - conda-forge
+      - "jive={{ tango_ds_jive_version }}"
+    creates: "{{ tango_ds_miniforge_prefix }}/envs/{{ tango_ds_jive_env }}/bin/jive"
 
-- name: Install a wrapper script so 'jive' works as a normal command
+# conda run puts the environment's bin/ on PATH, so Jive's launcher finds its java
+# (calling the env's jive directly failed with "java: not found", Sept 2026).
+- name: Install a wrapper so 'jive' works as a normal command
   ansible.builtin.copy:
     dest: /usr/local/bin/jive
-    mode: '0755'
+    mode: "0755"
     content: |
       #!/bin/bash
-      # Wrapper for Jive (TANGO DB browser/admin GUI), installed via conda-forge
-      # into the dedicated 'tango-gui' environment -- kept isolated from the
-      # apt/pip-managed PyTango toolchain used everywhere else on this host.
-      exec /opt/miniforge3/bin/conda run -n tango-gui jive "$@"
+      # Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+      # Jive from conda-forge, in the dedicated '{{ tango_ds_jive_env }}' environment.
+      exec {{ tango_ds_miniforge_prefix }}/bin/conda run -n {{ tango_ds_jive_env }} jive "$@"

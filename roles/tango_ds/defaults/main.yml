@@ -1,2 +1,42 @@
 ---
-# defaults file for roles/tango_ds
+# defaults file for tango_ds (handbook Part 3, Ch23)
+
+# apt: the Tango client side (no tango-db here: that is roles/tango_db), the simulators'
+# serial link (socat), and the debugging tools of Sept 2026 (gdb, python3-dbg, moreutils).
+# redis-server stays while devices still archive to Redis; it leaves with their Redis code
+# (Ch24-27), since HDB++ replaces it. No C++ toolchain and no podman any more (Ch23).
+tango_ds_apt_packages:
+  - tango-common
+  - libtango-tools
+  - python3-pip
+  - socat
+  - redis-server
+  - gdb
+  - python3-dbg
+  - moreutils
+
+# pip, system-wide, the same pins as tango-devices' ci/Dockerfile (the versions Ch2-7 were
+# tested with). Change a version here and in ci/Dockerfile together, in one commit.
+# numpy comes with pytango.
+tango_ds_pip_packages:
+  - pytango==10.3.1
+  - pymodbus==3.15.0
+  - pyserial==3.5
+  - redis==8.1.0
+  - pytest==9.1.1
+  - ruff==0.16.5
+  - py-spy==0.4.2
+
+tango_ds_tango_host: tango-db.beamline:10000
+
+# Jive (Tango's Java database browser) from conda-forge, in its own environment under a
+# pinned Miniforge. The checksum is the one the release publishes for this installer
+# (checked 2026-10-19). Jive 7.46 is what Sept 2026 used; 8.0 exists.
+tango_ds_miniforge_version: 26.7.2-0
+tango_ds_miniforge_sha256: 281b0ac7d550802efc81af633225a5e6116d29ae72f3ab4eae7168c3931a4c05
+tango_ds_miniforge_prefix: /opt/miniforge3
+tango_ds_miniforge_installer: "Miniforge3-{{ tango_ds_miniforge_version }}-Linux-x86_64.sh"
+tango_ds_miniforge_url: >-
+  https://github.com/conda-forge/miniforge/releases/download/{{ tango_ds_miniforge_version }}/{{ tango_ds_miniforge_installer }}
+tango_ds_jive_env: tango-gui
+tango_ds_jive_version: "7.46"
