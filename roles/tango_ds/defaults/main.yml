@@ -3,14 +3,13 @@
 
 # apt: the Tango client side (no tango-db here: that is roles/tango_db), the simulators'
 # serial link (socat), and the debugging tools of Sept 2026 (gdb, python3-dbg, moreutils).
-# redis-server stays while devices still archive to Redis; it leaves with their Redis code
-# (Ch24-27), since HDB++ replaces it. No C++ toolchain and no podman any more (Ch23).
+# No C++ toolchain and no podman any more (Ch23), and no Redis: the last device that used it
+# dropped it in Ch27 (HDB++ is the archive from Ch30).
 tango_ds_apt_packages:
   - tango-common
   - libtango-tools
   - python3-pip
   - socat
-  - redis-server
   - gdb
   - python3-dbg
   - moreutils
@@ -22,10 +21,20 @@ tango_ds_pip_packages:
   - pytango==10.3.1
   - pymodbus==3.15.0
   - pyserial==3.5
-  - redis==8.1.0
   - pytest==9.1.1
   - ruff==0.16.5
   - py-spy==0.4.2
+
+# Removed from hosts that still have them (Ch27). Purged, so the service, its configuration
+# and /var/lib/redis go too. The libraries redis-server pulled in (libatomic1, libjemalloc2,
+# liblzf1) are left in place as unused automatic packages: purging them by name could remove
+# a package added here later that needs them, and apt autoremove would act on whatever else
+# happens to be unused on the host.
+tango_ds_apt_packages_absent:
+  - redis-server
+  - redis-tools
+tango_ds_pip_packages_absent:
+  - redis
 
 tango_ds_tango_host: tango-db.beamline:10000
 
