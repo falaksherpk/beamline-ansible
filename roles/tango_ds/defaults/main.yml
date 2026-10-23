@@ -62,9 +62,11 @@ tango_ds_jive_version: "7.46"
 # kind is one contiguous block, opened in ufw as a range (asserted in the tasks). 28366 and
 # 28367 stay free for Sardana's Pool and MacroServer (Ch31). All bind to the server's lab
 # address only (they follow -ORBendPoint's host), below the kernel's ephemeral range.
-# after: simulator units started first (Wants= + After=); a device that loses one later
-# heals by itself (Ch25-28). binds_to: the magnet only - a socat restart makes new ptys,
-# and the device reopens its port only at start (BindsTo=, so it restarts with socat).
+# after: simulator units started first (Wants= + After=). The Faraday cup, vacuum gauge
+# and interlock heal by themselves when theirs returns (Ch26-28), the camera since Ch29;
+# the magnet after a lost PSU process is untested. binds_to: the magnet only - a socat
+# restart makes new ptys, and the device reopens its port only at start (BindsTo=, so it
+# restarts with socat).
 tango_ds_servers:
   - name: magnet
     server: magnet_power_supply/q1
