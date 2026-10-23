@@ -1,0 +1,9 @@
+# Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+# The five Tango lab device servers and their simulators: each tango-*.service is
+# WantedBy= and PartOf= this target, so starting, stopping or restarting it acts on all
+# of them, in the order their units give (handbook Part 3, Ch29).
+[Unit]
+Description=Tango lab device servers and their simulators (handbook Part 3, Ch29)
+
+[Install]
+WantedBy=multi-user.target

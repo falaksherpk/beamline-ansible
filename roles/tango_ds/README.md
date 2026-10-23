@@ -1,38 +1,46 @@
-Role Name
-=========
+tango_ds
+========
 
-A brief description of the role goes here.
+The Tango device-server host of the lab (`tango-ds.beamline`; handbook Part 3, Ch23 and
+Ch29). The Tango Database itself is `roles/tango_db`.
 
-Requirements
+What it does
 ------------
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance, if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
+- **Tango client side and tools (Ch23):** `tango-common`, `libtango-tools`, `socat`,
+  debugging tools; PyTango and the devices' Python packages, pinned to the same versions
+  as `tango-devices`' `ci/Dockerfile`; `TANGO_HOST` in `/etc/environment`; Jive from
+  conda-forge. Redis is removed (Ch27).
+- **Registration (Ch29, tag `tango_ds_register`):** `tango_ds_servers` lists the five
+  device servers. `/usr/local/sbin/tango-ds-register` adds a server or device the
+  database lacks and writes only the properties that differ; memorized attribute values
+  are never touched. In check mode a difference is reported as a change.
+- **Services (Ch29, tag `tango_ds_services`):** one systemd unit per process, from one
+  template: `tango-<name>.service` for the servers and for the simulators in
+  `tango_ds_simulators`, all `PartOf=` and `WantedBy=` `tango-lab.target`. They run as
+  `tango`, with `Restart=on-failure` and `roles/healthcheck`'s hardening set (servers
+  also need `AF_NETLINK`). Simulators report ready through
+  `/usr/local/sbin/tango-ds-wait` before the units ordered after them start. The magnet's
+  units are bound to its `socat` unit; every other device heals by itself when its
+  simulator returns.
+- **Firewall (Ch29, tag `tango_ds_firewall`):** each server has a fixed CORBA port
+  (`-ORBendPoint`) and fixed ZeroMQ heartbeat and event ports (`TANGO_ZMQ_*_PORT`),
+  bound to the host's lab address; the three blocks are opened to `tango_ds_allowed_from`.
+  Simulator ports stay on 127.0.0.1.
 
-Role Variables
---------------
-
-A description of the settable variables for this role should go here, including any variables that are in defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well.
-
-Dependencies
+Operating it
 ------------
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set for other roles, or variables that are used from other roles.
+    sudo systemctl status 'tango-*'          # every unit
+    sudo systemctl restart tango-lab.target  # everything, in dependency order
+    sudo journalctl -u tango-magnet -f       # one server's log, its own lines included
 
-Example Playbook
-----------------
-
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for users too:
-
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
+The code in `/opt/tango-devices` is pulled by hand with the read-only deploy token
+(handbook Ch23); after a pull, restart the affected units. Memorized values behave as in
+the device chapters: the vacuum gauge's memorized `PumpStatus` starts the pump at every
+start of its server.
 
 License
 -------
 
-BSD
-
-Author Information
-------------------
-
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
+MIT-0 (as the tasks file).

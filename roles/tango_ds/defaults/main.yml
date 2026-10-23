@@ -50,42 +50,64 @@ tango_ds_miniforge_url: >-
 tango_ds_jive_env: tango-gui
 tango_ds_jive_version: "7.46"
 
-# --- Ch29: registration of the device servers ------------------------------------------
-# One entry per device server. The role registers each server, class and device and
-# writes the listed properties wherever the Tango database differs
-# (files/tango-ds-register). Unlisted properties and memorized attribute values
-# (the magnet's setpoint, the vacuum gauge's PumpStatus) are left alone. Values are
-# strings, as the database stores them.
+# --- Ch29: the device servers -----------------------------------------------------------
+# One entry per device server, used twice:
+# - registration (files/tango-ds-register): server, class, device and the listed
+#   properties are written wherever the Tango database differs. Unlisted properties and
+#   memorized attribute values (the magnet's setpoint, the vacuum gauge's PumpStatus) are
+#   left alone. Property values are strings, as the database stores them.
+# - a systemd unit, tango-<name>.service (templates/tango-ds-unit.service.j2): the script
+#   under tango_ds_code_dir, three fixed ports, and the simulator units it starts after.
+# Ports: CORBA (-ORBendPoint), ZeroMQ heartbeat and ZeroMQ event (TANGO_ZMQ_*_PORT); each
+# kind is one contiguous block, opened in ufw as a range (asserted in the tasks). 28366 and
+# 28367 stay free for Sardana's Pool and MacroServer (Ch31). All bind to the server's lab
+# address only (they follow -ORBendPoint's host), below the kernel's ephemeral range.
+# after: simulator units started first (Wants= + After=); a device that loses one later
+# heals by itself (Ch25-28). binds_to: the magnet only - a socat restart makes new ptys,
+# and the device reopens its port only at start (BindsTo=, so it restarts with socat).
 tango_ds_servers:
   - name: magnet
     server: magnet_power_supply/q1
     class: MagnetPowerSupply
     device: linac/magnet/q1
+    script: linac/magnet/magnet_power_supply.py
+    ports: {corba: 28368, heartbeat: 28468, event: 28568}
+    after: [magnet-psu]
+    binds_to: magnet-socat
     properties:
       port: /run/tango-magnet/dev
       baudrate: "9600"
       ramp_rate: "5.0"
-  - name: camera
-    server: ceyag_camera/ceyag1
-    class: CeYagCamera
-    device: linac/camera/ceyag1
-    properties:
-      host: 127.0.0.1
-      port: "9999"
-      frame_interval_ms: "200"
   - name: faradaycup
     server: faraday_cup/faradaycup1
     class: FaradayCup
     device: linac/beam/faradaycup1
+    script: linac/beam/faraday_cup.py
+    ports: {corba: 28369, heartbeat: 28469, event: 28569}
+    after: [faradaycup-adapter]
     properties:
       PrologixHost: 127.0.0.1
       PrologixPort: "1234"
       GpibAddress: "22"
       PollIntervalMs: "500"
+  - name: camera
+    server: ceyag_camera/ceyag1
+    class: CeYagCamera
+    device: linac/camera/ceyag1
+    script: linac/camera/ceyag_camera.py
+    ports: {corba: 28370, heartbeat: 28470, event: 28570}
+    after: [camera-sim]
+    properties:
+      host: 127.0.0.1
+      port: "9999"
+      frame_interval_ms: "200"
   - name: vacuum
     server: vacuum_gauge/gauge1
     class: VacuumGauge
     device: linac/vacuum/gauge1
+    script: linac/vacuum/vacuum_gauge.py
+    ports: {corba: 28371, heartbeat: 28471, event: 28571}
+    after: [vacuum-sim]
     properties:
       Host: 127.0.0.1
       Port: "5020"
@@ -94,6 +116,68 @@ tango_ds_servers:
     server: interlock_monitor/interlock1
     class: InterlockMonitor
     device: linac/safety/interlock1
+    script: linac/safety/interlock_monitor.py
+    ports: {corba: 28372, heartbeat: 28472, event: 28572}
+    after: [interlock-sim]
     properties:
       Host: 127.0.0.1
       Port: "5040"
+
+# The simulators: one unit each, tango-<name>.service, on 127.0.0.1 or ptys only (never
+# opened in ufw). ready: tango-ds-wait's arguments, run as ExecStartPost= so a unit counts
+# as started only once it can serve ($MAINPID is expanded by systemd). The adapter dials
+# the picoammeter once at startup, so it starts after it; later restarts of either need
+# nothing restarted (Ch26).
+tango_ds_simulators:
+  - name: magnet-socat
+    description: RS-232 link for the magnet, a socat pty pair
+    command: >-
+      /usr/bin/socat -d pty,raw,echo=0,link=/run/tango-magnet/psu
+      pty,raw,echo=0,link=/run/tango-magnet/dev
+    runtime_dir: tango-magnet
+    ready: path /run/tango-magnet/psu /run/tango-magnet/dev
+  - name: magnet-psu
+    description: Fake magnet power supply, on the instrument end of the link
+    script: linac/magnet/fake_magnet_psu.py
+    args: /run/tango-magnet/psu
+    binds_to: magnet-socat
+    ready: fd $MAINPID /run/tango-magnet/psu
+  - name: faradaycup-picoammeter
+    description: Fake Keithley 6485 picoammeter
+    script: linac/beam/fake_picoammeter.py
+    args: "5025"
+    ready: listen 5025
+  - name: faradaycup-adapter
+    description: Fake Prologix GPIB-ETHERNET adapter in front of the picoammeter
+    script: linac/beam/fake_prologix_adapter.py
+    args: 1234 127.0.0.1 5025
+    after: [faradaycup-picoammeter]
+    ready: listen 1234
+  - name: camera-sim
+    description: Fake Ce:YAG camera, a frame every 0.5 s
+    script: linac/camera/fake_ceyag_camera.py
+    args: 9999 0.5
+    ready: listen 9999
+  - name: vacuum-sim
+    description: Fake Modbus TCP vacuum gauge
+    script: linac/vacuum/fake_modbus_vacuum.py
+    args: "5020"
+    ready: listen 5020
+  - name: interlock-sim
+    description: Fake Modbus TCP interlock PLC
+    script: linac/safety/fake_modbus_plc.py
+    args: "5040"
+    ready: listen 5040
+
+tango_ds_service_user: tango
+tango_ds_code_dir: /opt/tango-devices
+# -ORBendPoint's host: the servers bind to this name's lab address and publish it.
+tango_ds_endpoint_host: "{{ inventory_hostname }}"
+# Tango's console log level for the servers (4 = info): the devices' own error_stream
+# and info_stream lines reach the journal (Ch29 probe L1). Python logging (the Faraday
+# cup) goes to stderr regardless.
+tango_ds_log_level: 4
+tango_ds_allowed_from: 10.10.10.0/24
+# Restart delay: at most two starts per 10 s, so systemd's default start limit (5 in 10 s)
+# never stops a unit that keeps failing while its peer is missing.
+tango_ds_restart_sec: 5

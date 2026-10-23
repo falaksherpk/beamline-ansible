@@ -178,4 +178,150 @@
     - tango_ds_registration.rc == 0
     - (tango_ds_registration.stdout | from_json).changes | length > 0
   changed_when: true
+  register: tango_ds_registration_write
   tags: [tango_ds_register]
+
+# --- Ch29: the device servers and their simulators as services --------------------------
+# One unit per process (5 servers, 7 simulator processes), all from one template, grouped
+# under tango-lab.target. Code updates in /opt/tango-devices stay a manual pull (Ch23);
+# after one, restart the affected units by hand.
+- name: Install the readiness helper the units call from ExecStartPost
+  ansible.builtin.copy:
+    src: tango-ds-wait
+    dest: /usr/local/sbin/tango-ds-wait
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [tango_ds_services]
+
+- name: Install the target that groups the Tango lab units
+  ansible.builtin.template:
+    src: tango-lab.target.j2
+    dest: /etc/systemd/system/tango-lab.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
+- name: Install the simulator units
+  ansible.builtin.template:
+    src: tango-ds-unit.service.j2
+    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ tango_ds_simulators }}"
+  loop_control:
+    loop_var: unit
+    label: "tango-{{ unit.name }}"
+  register: tango_ds_simulator_units
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
+- name: Install the device-server units
+  ansible.builtin.template:
+    src: tango-ds-unit.service.j2
+    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ tango_ds_servers }}"
+  loop_control:
+    loop_var: unit
+    label: "tango-{{ unit.name }}"
+  register: tango_ds_server_units
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
+# The firewall opens each kind of port as one range; a gap or a duplicate would open a
+# port no server owns, or leave one closed.
+- name: Check that each kind of fixed port forms one contiguous block
+  ansible.builtin.assert:
+    that:
+      - ports | unique | length == tango_ds_servers | length
+      - (ports | max) - (ports | min) + 1 == tango_ds_servers | length
+    fail_msg: "{{ kind }} ports {{ ports | sort }} are not one contiguous block"
+    quiet: true
+  vars:
+    ports: "{{ tango_ds_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_ds_firewall]
+
+- name: Open the device servers' fixed ports to the lab network
+  community.general.ufw:
+    rule: allow
+    port: "{{ ports | min }}:{{ ports | max }}"
+    proto: tcp
+    from_ip: "{{ tango_ds_allowed_from }}"
+    comment: "Tango device servers, {{ kind }} ports, lab network (Ch29)"
+  vars:
+    ports: "{{ tango_ds_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_ds_firewall]
+
+- name: Make systemd read the new and changed units now
+  ansible.builtin.meta: flush_handlers
+  tags: [tango_ds_services]
+
+- name: Enable every unit, so the target starts it at boot
+  ansible.builtin.systemd_service:
+    name: "tango-{{ unit }}.service"
+    enabled: true
+  loop: "{{ (tango_ds_simulators + tango_ds_servers) | map(attribute='name') | list }}"
+  loop_control:
+    loop_var: unit
+  # In check mode the units above are only simulated, so systemd doesn't know them yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_services]
+
+- name: Keep the target enabled and started (starts every unit, in dependency order)
+  ansible.builtin.systemd_service:
+    name: tango-lab.target
+    enabled: true
+    state: started
+  register: tango_ds_target
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_services]
+
+# Units already running pick up a changed unit file, or changed registration properties,
+# only at a restart. Simulators first: a socat restart also restarts the units bound to it.
+# Only when the target task succeeded without starting anything: if it has just started
+# the units they are fresh, and if it failed (check mode before the first install) there
+# is nothing to restart.
+- name: Restart the simulator units whose unit file changed
+  ansible.builtin.systemd_service:
+    name: "tango-{{ item.unit.name }}.service"
+    state: restarted
+  loop: "{{ tango_ds_simulator_units.results }}"
+  loop_control:
+    label: "tango-{{ item.unit.name }}"
+  when:
+    - item is changed
+    - tango_ds_target is succeeded
+    - tango_ds_target is not changed
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_services]
+
+- name: Restart the device servers whose unit file or registration changed
+  ansible.builtin.systemd_service:
+    name: "tango-{{ item.unit.name }}.service"
+    state: restarted
+  loop: "{{ tango_ds_server_units.results }}"
+  loop_control:
+    label: "tango-{{ item.unit.name }}"
+  vars:
+    registration_written: "{{ tango_ds_registration_write | default({}) is changed }}"
+    registration_changes: "{{ (tango_ds_registration.stdout | default('{}') | from_json).changes | default([]) }}"
+  when:
+    - >-
+      item is changed or (registration_written and
+      registration_changes | select('match', item.unit.device ~ ':') | list | length > 0)
+    - tango_ds_target is succeeded
+    - tango_ds_target is not changed
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_services]

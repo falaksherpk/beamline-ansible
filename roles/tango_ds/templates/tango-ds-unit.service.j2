@@ -1,0 +1,87 @@
+# Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+{% if unit.server is defined %}
+# Tango device server {{ unit.server }} ({{ unit.device }}), started after its simulators.
+{% else %}
+# Simulator for the Tango lab: on 127.0.0.1 or ptys only, never opened in ufw.
+{% endif %}
+[Unit]
+{% if unit.server is defined %}
+Description=Tango device server {{ unit.server }} ({{ unit.device }}) (handbook Part 3, Ch29)
+{% else %}
+Description={{ unit.description }} (handbook Part 3, Ch29)
+{% endif %}
+PartOf=tango-lab.target
+{% if unit.server is defined %}
+Wants=network-online.target
+After=network-online.target
+{% endif %}
+{% for peer in unit.after | default([]) %}
+Wants=tango-{{ peer }}.service
+After=tango-{{ peer }}.service
+{% endfor %}
+{% if unit.binds_to is defined %}
+BindsTo=tango-{{ unit.binds_to }}.service
+After=tango-{{ unit.binds_to }}.service
+{% endif %}
+
+[Service]
+Type=simple
+User={{ tango_ds_service_user }}
+Group={{ tango_ds_service_user }}
+{% if unit.server is defined %}
+# systemd doesn't read /etc/environment: the database and the two ZeroMQ ports are set
+# here, the CORBA port by -ORBendPoint, all on {{ tango_ds_endpoint_host }}'s lab address.
+Environment=TANGO_HOST={{ tango_ds_tango_host }}
+Environment=TANGO_ZMQ_HEARTBEAT_PORT={{ unit.ports.heartbeat }}
+Environment=TANGO_ZMQ_EVENT_PORT={{ unit.ports.event }}
+ExecStart=/usr/bin/python3 -u {{ tango_ds_code_dir }}/{{ unit.script }} {{ unit.server.split('/')[1] }} -ORBendPoint giop:tcp:{{ tango_ds_endpoint_host }}:{{ unit.ports.corba }} -v{{ tango_ds_log_level }}
+{% elif unit.command is defined %}
+ExecStart={{ unit.command }}
+{% else %}
+ExecStart=/usr/bin/python3 -u {{ tango_ds_code_dir }}/{{ unit.script }} {{ unit.args }}
+{% endif %}
+{% if unit.runtime_dir is defined %}
+RuntimeDirectory={{ unit.runtime_dir }}
+{% endif %}
+{% if unit.ready is defined %}
+# Started only once it can serve (Type=simple alone counts the fork).
+ExecStartPost=/usr/local/sbin/tango-ds-wait {{ unit.ready }}
+{% endif %}
+Restart=on-failure
+RestartSec={{ tango_ds_restart_sec }}
+
+# Hardening: roles/healthcheck's set (exposure 1.5, Ch16), proven on both kinds of chain
+# in Ch29 probe L3b. PrivateDevices keeps the host's /dev/pts, so the magnet's units share
+# socat's ptys. Nothing is writable but the runtime directory and a private /tmp.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+{% if unit.server is defined %}
+# AF_NETLINK: without it libzmq aborts the server at startup (Ch29 probe L3).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+{% else %}
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+{% endif %}
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=tango-lab.target
