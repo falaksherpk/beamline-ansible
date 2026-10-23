@@ -49,3 +49,51 @@ tango_ds_miniforge_url: >-
   https://github.com/conda-forge/miniforge/releases/download/{{ tango_ds_miniforge_version }}/{{ tango_ds_miniforge_installer }}
 tango_ds_jive_env: tango-gui
 tango_ds_jive_version: "7.46"
+
+# --- Ch29: registration of the device servers ------------------------------------------
+# One entry per device server. The role registers each server, class and device and
+# writes the listed properties wherever the Tango database differs
+# (files/tango-ds-register). Unlisted properties and memorized attribute values
+# (the magnet's setpoint, the vacuum gauge's PumpStatus) are left alone. Values are
+# strings, as the database stores them.
+tango_ds_servers:
+  - name: magnet
+    server: magnet_power_supply/q1
+    class: MagnetPowerSupply
+    device: linac/magnet/q1
+    properties:
+      port: /run/tango-magnet/dev
+      baudrate: "9600"
+      ramp_rate: "5.0"
+  - name: camera
+    server: ceyag_camera/ceyag1
+    class: CeYagCamera
+    device: linac/camera/ceyag1
+    properties:
+      host: 127.0.0.1
+      port: "9999"
+      frame_interval_ms: "200"
+  - name: faradaycup
+    server: faraday_cup/faradaycup1
+    class: FaradayCup
+    device: linac/beam/faradaycup1
+    properties:
+      PrologixHost: 127.0.0.1
+      PrologixPort: "1234"
+      GpibAddress: "22"
+      PollIntervalMs: "500"
+  - name: vacuum
+    server: vacuum_gauge/gauge1
+    class: VacuumGauge
+    device: linac/vacuum/gauge1
+    properties:
+      Host: 127.0.0.1
+      Port: "5020"
+      ModbusDeviceId: "1"
+  - name: interlock
+    server: interlock_monitor/interlock1
+    class: InterlockMonitor
+    device: linac/safety/interlock1
+    properties:
+      Host: 127.0.0.1
+      Port: "5040"

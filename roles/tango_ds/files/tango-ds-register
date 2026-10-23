@@ -1,0 +1,82 @@
+#!/usr/bin/python3
+"""Register Tango device servers and their properties, idempotently.
+
+Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+
+Reads a JSON list on stdin, one object per device: {"server": "magnet_power_supply/q1",
+"class": "MagnetPowerSupply", "device": "linac/magnet/q1", "properties": {...}}; other
+keys are ignored. For each device it adds the server/device entry if the database
+doesn't have it under that server and class, and writes each listed property whose
+stored value differs. Nothing else is touched: unlisted properties, attribute
+properties and memorized values stay as they are.
+
+Prints one JSON line, {"changes": [...]}, one text per difference. With --check it only
+compares and writes nothing. Exit 0 on success; any Tango error exits non-zero with its
+traceback (handbook Part 3, Ch29).
+"""
+
+import argparse
+import json
+import sys
+
+import tango
+
+
+def stored_registration(db, device):
+    """(server, class) the database holds for device, or None if it holds none."""
+    try:
+        info = db.get_device_info(device)
+    except tango.DevFailed as e:
+        if e.args[0].reason == "DB_DeviceNotDefined":
+            return None
+        raise
+    return (info.ds_full_name, info.class_name)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="compare only, write nothing"
+    )
+    args = parser.parse_args()
+
+    entries = json.load(sys.stdin)
+    db = tango.Database()
+    changes = []
+
+    for entry in entries:
+        device = entry["device"]
+        wanted = (entry["server"], entry["class"])
+        stored = stored_registration(db, device)
+        if stored != wanted:
+            changes.append(
+                f"{device}: register as server {wanted[0]}, class {wanted[1]}"
+                f" (database has {stored})"
+            )
+            if not args.check:
+                info = tango.DbDevInfo()
+                info.name = device
+                info.server = wanted[0]
+                info._class = wanted[1]
+                db.add_device(info)
+
+        props = {name: [str(value)] for name, value in entry["properties"].items()}
+        have = db.get_device_property(device, list(props))
+        differ = {
+            name: value
+            for name, value in props.items()
+            if list(have.get(name, [])) != value
+        }
+        for name, value in differ.items():
+            changes.append(
+                f"{device}: property {name} = {value[0]}"
+                f" (database has {list(have.get(name, []))})"
+            )
+        if differ and not args.check:
+            db.put_device_property(device, differ)
+
+    print(json.dumps({"changes": changes}))
+
+
+if __name__ == "__main__":
+    main()
