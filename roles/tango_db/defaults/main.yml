@@ -53,8 +53,13 @@ tango_db_hdbpp_server_packages:
   - hdbpp-cm
   - python3-tango
 tango_db_tango_host: "{{ inventory_hostname }}:{{ tango_db_port }}"
-# One entry per server, as tango_ds_servers in roles/tango_ds (registration now, a unit
-# each in the next step). Property values are strings, or lists of strings for properties
+# One entry per server, as tango_ds_servers in roles/tango_ds: registration
+# (files/tango-db-register) and a unit, hdbpp-<name>.service (templates/hdbpp-unit.service.j2).
+# Ports: CORBA (-ORBendPoint), ZeroMQ heartbeat and ZeroMQ event, the next free last digits
+# after tango-ds's 68-72, on this host's lab address; each kind one contiguous block,
+# opened in ufw as a range. after: units started first (Wants= + After=); no BindsTo=, so
+# a MariaDB or DataBaseds restart doesn't restart the servers (the backend reconnects).
+# Property values are strings, or lists of strings for properties
 # holding several. Unlisted properties stay as they are: the EventSubscriber's
 # AttributeList belongs to it (the ConfigurationManager's AttributeAdd writes it).
 # LibConfiguration's empty password is deliberate: unix_socket ignores it, and the backend
@@ -65,6 +70,9 @@ tango_db_hdbpp_servers:
     server: hdb++es-srv/01
     class: HdbEventSubscriber
     device: archiving/hdbpp/eventsubscriber01
+    binary: /usr/bin/hdb++es-srv
+    ports: {corba: 28374, heartbeat: 28474, event: 28574}
+    after: [mariadb, tango-db]
     properties:
       LibConfiguration:
         - libname=libhdb++mysql.so.7
@@ -77,6 +85,16 @@ tango_db_hdbpp_servers:
     server: hdb++cm-srv/01
     class: HdbConfigurationManager
     device: archiving/hdbpp/confmanager01
+    binary: /usr/bin/hdb++cm-srv
+    ports: {corba: 28373, heartbeat: 28473, event: 28573}
+    after: [tango-db, hdbpp-es]
     properties:
       ArchiverList:
         - archiving/hdbpp/eventsubscriber01
+
+# -ORBendPoint's host: the servers bind to this name's lab address and publish it.
+tango_db_endpoint_host: "{{ inventory_hostname }}"
+# Tango's console log level for the servers (4 = info), into the journal.
+tango_db_hdbpp_log_level: 4
+# At most two starts per 10 s, under systemd's default start limit (5 in 10 s).
+tango_db_hdbpp_restart_sec: 5

@@ -237,3 +237,119 @@
   changed_when: true
   register: tango_db_hdbpp_registration_write
   tags: [tango_db_hdbpp_register]
+
+# --- Ch30: the HDB++ servers as services --------------------------------------------------
+# One unit per server from one template, grouped under hdbpp.target, as roles/tango_ds does
+# for the lab devices (Ch29). systemd is told about changed units by an explicit task here
+# rather than a handler.
+- name: Install the readiness helper the HDB++ units call from ExecStartPost
+  ansible.builtin.copy:
+    src: tango-db-wait
+    dest: /usr/local/sbin/tango-db-wait
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [tango_db_hdbpp_services]
+
+- name: Install the target that groups the HDB++ units
+  ansible.builtin.template:
+    src: hdbpp.target.j2
+    dest: /etc/systemd/system/hdbpp.target
+    owner: root
+    group: root
+    mode: "0644"
+  register: tango_db_hdbpp_target_file
+  tags: [tango_db_hdbpp_services]
+
+- name: Install the HDB++ server units
+  ansible.builtin.template:
+    src: hdbpp-unit.service.j2
+    dest: "/etc/systemd/system/hdbpp-{{ unit.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ tango_db_hdbpp_servers }}"
+  loop_control:
+    loop_var: unit
+    label: "hdbpp-{{ unit.name }}"
+  register: tango_db_hdbpp_units
+  tags: [tango_db_hdbpp_services]
+
+# The firewall opens each kind of port as one range; a gap or a duplicate would open a
+# port no server owns, or leave one closed.
+- name: Check that each kind of HDB++ port forms one contiguous block
+  ansible.builtin.assert:
+    that:
+      - ports | unique | length == tango_db_hdbpp_servers | length
+      - (ports | max) - (ports | min) + 1 == tango_db_hdbpp_servers | length
+    fail_msg: "{{ kind }} ports {{ ports | sort }} are not one contiguous block"
+    quiet: true
+  vars:
+    ports: "{{ tango_db_hdbpp_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_db_hdbpp_firewall]
+
+- name: Open the HDB++ servers' fixed ports to the lab network
+  community.general.ufw:
+    rule: allow
+    port: "{{ ports | min }}:{{ ports | max }}"
+    proto: tcp
+    from_ip: "{{ tango_db_allowed_from }}"
+    comment: "HDB++ servers, {{ kind }} ports, lab network (Ch30)"
+  vars:
+    ports: "{{ tango_db_hdbpp_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_db_hdbpp_firewall]
+
+- name: Make systemd read the new and changed HDB++ units now
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: tango_db_hdbpp_target_file is changed or tango_db_hdbpp_units is changed
+  tags: [tango_db_hdbpp_services]
+
+- name: Enable both HDB++ units, so the target starts them at boot
+  ansible.builtin.systemd_service:
+    name: "hdbpp-{{ unit }}.service"
+    enabled: true
+  loop: "{{ tango_db_hdbpp_servers | map(attribute='name') | list }}"
+  loop_control:
+    loop_var: unit
+  # In check mode the units above are only simulated, so systemd doesn't know them yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_db_hdbpp_services]
+
+- name: Keep the HDB++ target enabled and started (starts both units, ES first)
+  ansible.builtin.systemd_service:
+    name: hdbpp.target
+    enabled: true
+    state: started
+  register: tango_db_hdbpp_target
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_db_hdbpp_services]
+
+# Units already running pick up a changed unit file, or changed registration properties,
+# only at a restart. Only when the target task succeeded without starting anything: if it
+# has just started the units they are fresh, and if it failed (check mode before the first
+# install) there is nothing to restart.
+- name: Restart the HDB++ servers whose unit file or registration changed
+  ansible.builtin.systemd_service:
+    name: "hdbpp-{{ item.unit.name }}.service"
+    state: restarted
+  loop: "{{ tango_db_hdbpp_units.results }}"
+  loop_control:
+    label: "hdbpp-{{ item.unit.name }}"
+  vars:
+    registration_written: "{{ tango_db_hdbpp_registration_write | default({}) is changed }}"
+    registration_changes: "{{ (tango_db_hdbpp_registration.stdout | default('{}') | from_json).changes | default([]) }}"
+  when:
+    - >-
+      item is changed or (registration_written and
+      registration_changes | select('match', item.unit.device ~ ':') | list | length > 0)
+    - tango_db_hdbpp_target is succeeded
+    - tango_db_hdbpp_target is not changed
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_db_hdbpp_services]

@@ -1,0 +1,9 @@
+# Managed by Ansible (beamline-ansible, role tango_db) - do not edit on the host.
+# The HDB++ servers on this host: each hdbpp-*.service is WantedBy= and PartOf= this
+# target, so starting, stopping or restarting it acts on both, in the order their units
+# give (handbook Part 3, Ch30).
+[Unit]
+Description=HDB++ archiving servers (handbook Part 3, Ch30)
+
+[Install]
+WantedBy=multi-user.target

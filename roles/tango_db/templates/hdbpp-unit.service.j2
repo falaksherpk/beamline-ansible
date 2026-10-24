@@ -1,0 +1,58 @@
+# Managed by Ansible (beamline-ansible, role tango_db) - do not edit on the host.
+# HDB++ {{ unit.class }} {{ unit.server }} ({{ unit.device }}), a Tango device server.
+[Unit]
+Description=HDB++ {{ unit.class }} {{ unit.server }} ({{ unit.device }}) (handbook Part 3, Ch30)
+PartOf=hdbpp.target
+Wants=network-online.target
+After=network-online.target
+{% for peer in unit.after %}
+Wants={{ peer }}.service
+After={{ peer }}.service
+{% endfor %}
+
+[Service]
+Type=simple
+User={{ tango_db_hdbpp_user }}
+Group={{ tango_db_hdbpp_user }}
+# systemd doesn't read /etc/environment: the database and the two ZeroMQ ports are set
+# here, the CORBA port by -ORBendPoint, all on {{ tango_db_endpoint_host }}'s lab address.
+Environment=TANGO_HOST={{ tango_db_tango_host }}
+Environment=TANGO_ZMQ_HEARTBEAT_PORT={{ unit.ports.heartbeat }}
+Environment=TANGO_ZMQ_EVENT_PORT={{ unit.ports.event }}
+ExecStart={{ unit.binary }} {{ unit.server.split('/')[1] }} -ORBendPoint giop:tcp:{{ tango_db_endpoint_host }}:{{ unit.ports.corba }} -v{{ tango_db_hdbpp_log_level }}
+# Started only once it can serve (Type=simple alone counts the fork).
+ExecStartPost=/usr/local/sbin/tango-db-wait listen {{ unit.ports.corba }}
+Restart=on-failure
+RestartSec={{ tango_db_hdbpp_restart_sec }}
+
+# Hardening: roles/tango_ds's server set (Ch29), proven for these two binaries in the Ch30
+# probes (E1, C1). The EventSubscriber connects to MariaDB's socket on the read-only /run
+# (connecting to a socket is not a write). AF_NETLINK: without it the server aborts at
+# startup in libzmq (ip_resolver.cpp:542, Ch30 probe E0), as the PyTango servers do.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=hdbpp.target
