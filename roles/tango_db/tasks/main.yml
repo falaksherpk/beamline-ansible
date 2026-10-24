@@ -105,11 +105,14 @@
 # HDB++ archive database (handbook Part 3, Ch30): the backend package with its schema
 # files, the system user the EventSubscriber runs as, the hdbpp database loaded once from
 # the MariaDB schema file, and a unix_socket account for that user. community.mysql
-# connects as root over the socket and needs PyMySQL here.
+# connects as root over the socket and needs PyMySQL here. The HDB++ packages are pinned
+# (defaults); the cache is refreshed here every run, since the first install task above
+# keeps a cache up to an hour old, which may predate a build just published.
 - name: Install the HDB++ MySQL backend (schema files) and PyMySQL
   ansible.builtin.apt:
     name: "{{ tango_db_hdbpp_packages }}"
     state: present
+    update_cache: true
   register: tango_db_hdbpp_install
   tags: [tango_db_hdbpp]
 
@@ -178,6 +181,42 @@
     - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
   tags: [tango_db_hdbpp]
 
+# The MariaDB schema file creates att_history.time as DATETIME(3), but libhdb++mysql
+# 7.2.0 writes NOW(6) into it: an attribute's add and start events, a few hundred
+# microseconds apart, round to the same millisecond and the second fails with "1062
+# Duplicate entry" (found in Ch30). DATETIME(6) keeps the table's RANGE COLUMNS(time)
+# partitions and its rows. Compare first (read-only, also in check mode, where a
+# difference is reported as the change a real run would make), then alter only if needed.
+- name: Check the precision of att_history.time in the HDB++ schema
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+    query: >-
+      SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'att_history' AND COLUMN_NAME = 'time'
+    positional_args: ["{{ tango_db_hdbpp_schema }}"]
+  register: tango_db_hdbpp_history_time
+  check_mode: false
+  changed_when:
+    - ansible_check_mode
+    - tango_db_hdbpp_history_time_type == 'datetime(3)'
+  failed_when:
+    - tango_db_hdbpp_history_time is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
+  vars:
+    tango_db_hdbpp_history_time_type: >-
+      {{ ((tango_db_hdbpp_history_time.query_result | default([[]]))[0] | first | default({})).t | default('') }}
+  tags: [tango_db_hdbpp]
+
+- name: Store microseconds in att_history.time (DATETIME(6))
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+    login_db: "{{ tango_db_hdbpp_schema }}"
+    query: ALTER TABLE att_history MODIFY time DATETIME(6) NOT NULL
+  when: >-
+    ((tango_db_hdbpp_history_time.query_result | default([[]]))[0] | first | default({})).t
+    | default('') == 'datetime(3)'
+  tags: [tango_db_hdbpp]
+
 # --- Ch30: registration of the HDB++ servers ---------------------------------------------
 # As roles/tango_ds does for the lab devices (Ch29): compare first (read-only, so it also
 # runs in check mode, where a difference is reported as the change a real run would make),
@@ -186,6 +225,7 @@
   ansible.builtin.apt:
     name: "{{ tango_db_hdbpp_server_packages }}"
     state: present
+    update_cache: true
   register: tango_db_hdbpp_server_install
   tags: [tango_db_hdbpp_register]
 
@@ -331,11 +371,12 @@
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_db_hdbpp_services]
 
-# Units already running pick up a changed unit file, or changed registration properties,
-# only at a restart. Only when the target task succeeded without starting anything: if it
-# has just started the units they are fresh, and if it failed (check mode before the first
-# install) there is nothing to restart.
-- name: Restart the HDB++ servers whose unit file or registration changed
+# Units already running pick up a changed unit file, changed registration properties, or
+# upgraded HDB++ packages (both servers: the EventSubscriber loads the backend library,
+# both link libtango and libhdb++) only at a restart. Only when the target task succeeded
+# without starting anything: if it has just started the units they are fresh, and if it
+# failed (check mode before the first install) there is nothing to restart.
+- name: Restart the HDB++ servers whose unit file, registration or packages changed
   ansible.builtin.systemd_service:
     name: "hdbpp-{{ item.unit.name }}.service"
     state: restarted
@@ -343,13 +384,73 @@
   loop_control:
     label: "hdbpp-{{ item.unit.name }}"
   vars:
+    packages_changed: >-
+      {{ tango_db_hdbpp_install | default({}) is changed
+      or tango_db_hdbpp_server_install | default({}) is changed }}
     registration_written: "{{ tango_db_hdbpp_registration_write | default({}) is changed }}"
     registration_changes: "{{ (tango_db_hdbpp_registration.stdout | default('{}') | from_json).changes | default([]) }}"
   when:
     - >-
-      item is changed or (registration_written and
+      item is changed or packages_changed or (registration_written and
       registration_changes | select('match', item.unit.device ~ ':') | list | length > 0)
     - tango_db_hdbpp_target is succeeded
     - tango_db_hdbpp_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_db_hdbpp_services]
+
+# --- Ch30: what is archived -----------------------------------------------------------------
+# files/tango-db-archive keeps the EventSubscriber's attributes in step with
+# tango_db_hdbpp_archive, after the servers are up: compare first (read-only, so it also
+# runs in check mode, where a difference is reported as the change a real run would make),
+# then write only what differs. Archived attributes not in the list are shown, never
+# removed. The devices are on tango-ds: they must be running for either step.
+- name: Install the archive script
+  ansible.builtin.copy:
+    src: tango-db-archive
+    dest: /usr/local/sbin/tango-db-archive
+    owner: root
+    group: root
+    mode: "0755"
+  register: tango_db_archive_script
+  tags: [tango_db_hdbpp_archive]
+
+- name: Compare the archived attributes with the list
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-db-archive, --check]
+    stdin: "{{ tango_db_hdbpp_archive_spec | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_db_tango_host }}"
+  register: tango_db_hdbpp_archive_state
+  check_mode: false
+  changed_when:
+    - ansible_check_mode
+    - tango_db_hdbpp_archive_state.rc == 0
+    - (tango_db_hdbpp_archive_state.stdout | from_json).changes | length > 0
+  # In check mode before the first install the script, PyTango or the servers aren't there yet.
+  failed_when:
+    - tango_db_hdbpp_archive_state.rc | default(1) != 0
+    - not (ansible_check_mode and (tango_db_archive_script is changed or tango_db_hdbpp_server_install is changed))
+  tags: [tango_db_hdbpp_archive]
+
+- name: Show the archive differences, and archived attributes not in the list
+  ansible.builtin.debug:
+    msg: "{{ state | dict2items | selectattr('key', 'in', ['changes', 'unlisted'])
+             | selectattr('value') | items2dict }}"
+  vars:
+    state: "{{ tango_db_hdbpp_archive_state.stdout | from_json }}"
+  when:
+    - tango_db_hdbpp_archive_state.rc == 0
+    - (state.changes + state.unlisted) | length > 0
+  tags: [tango_db_hdbpp_archive]
+
+- name: Archive what differs (add through the ConfigurationManager, or correct on the device)
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-db-archive]
+    stdin: "{{ tango_db_hdbpp_archive_spec | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_db_tango_host }}"
+  when:
+    - tango_db_hdbpp_archive_state.rc == 0
+    - (tango_db_hdbpp_archive_state.stdout | from_json).changes | length > 0
+  changed_when: true
+  tags: [tango_db_hdbpp_archive]

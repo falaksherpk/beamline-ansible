@@ -1,0 +1,186 @@
+#!/usr/bin/python3
+"""Keep the HDB++ archive's attribute list in step with a JSON list, idempotently.
+
+Managed by Ansible (beamline-ansible, role tango_db) - do not edit on the host.
+
+Reads one JSON object on stdin: {"configuration_manager": "<device>",
+"event_subscriber": "<device>", "attributes": [{"name": "linac/magnet/q1/current",
+"polling_ms": 1000, "abs_change": 0.05, "rel_change": 0, "period_ms": 10000}, ...]}.
+abs_change and rel_change 0 mean "not set" (as the ConfigurationManager reads them);
+State, booleans and strings need only polling_ms (they archive on every change).
+
+For each listed attribute it compares three things with the list: whether the
+EventSubscriber archives it, the device attribute's polling period, and its
+archive_abs_change / archive_rel_change / archive_period. "Archived" means both in the
+EventSubscriber's AttributeList property in the Tango database (what it loads at start)
+and in its running AttributeList: hdbpp-es 2.3.8 as released can keep an added attribute
+in memory without ever saving it, so it is gone at the next restart (fixed in our
+2.3.8-2, Ch30); checking the property too makes such a loss show up as a difference.
+
+Without --check it writes only what differs: an attribute not archived yet is added
+through the ConfigurationManager (Set* attributes, then AttributeAdd), one at a time,
+waiting until it is archived in both senses before the next; polling or criteria that
+drifted on an archived one are set on the device directly. AttributeAdd logs failures to
+set polling or criteria without failing, so every write is read back and a mismatch is
+an error.
+
+Archived attributes that are not listed are reported, never removed.
+
+Prints one JSON line, {"changes": [...], "unlisted": [...], "failed": [...]}: what
+differed, archived attributes not in the list, and differences left after writing. With
+--check it only compares. Exit 0 on success, 1 if a write did not take; any Tango error
+exits non-zero with its traceback (handbook Part 3, Ch30).
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+
+import tango
+
+
+def full_name(name):
+    """The lower-case tango://host:port/... form the EventSubscriber lists."""
+    return f"tango://{os.environ['TANGO_HOST']}/{name}".lower()
+
+
+def number_text(value):
+    """A criterion as the device stores it ("" for not set), for comparison."""
+    return "" if not value else f"{float(value):g}"
+
+
+def stored_criterion(text):
+    """Normalise a stored criterion: Tango shows unset values as "Not specified"."""
+    try:
+        return f"{float(text.split(',')[0]):g}"
+    except ValueError:
+        return ""
+
+
+def current(attr):
+    """(polling_ms, abs, rel, period) of one listed attribute, as the device stores them."""
+    dev_name, _, attr_name = attr["name"].rpartition("/")
+    dev = tango.DeviceProxy(dev_name)
+    polling = (
+        dev.get_attribute_poll_period(attr_name)
+        if dev.is_attribute_polled(attr_name)
+        else 0
+    )
+    arch = dev.get_attribute_config_ex([attr_name])[0].events.arch_event
+    return (
+        polling,
+        stored_criterion(arch.archive_abs_change),
+        stored_criterion(arch.archive_rel_change),
+        stored_criterion(arch.archive_period),
+    )
+
+
+def wanted(attr):
+    return (
+        int(attr["polling_ms"]),
+        number_text(attr.get("abs_change", 0)),
+        number_text(attr.get("rel_change", 0)),
+        number_text(attr.get("period_ms", 0)),
+    )
+
+
+def differences(attr, archived):
+    have, want = current(attr), wanted(attr)
+    labels = (
+        "polling_ms",
+        "archive_abs_change",
+        "archive_rel_change",
+        "archive_period",
+    )
+    out = []
+    if full_name(attr["name"]) not in archived:
+        out.append(f"{attr['name']}: not archived by the EventSubscriber")
+    for label, h, w in zip(labels, have, want):
+        if w != "" and h != w:  # an unset wanted criterion is left as it is
+            out.append(f"{attr['name']}: {label} = {w} (device has {h or 'unset'})")
+    return out
+
+
+def archived_names(db, es, es_name):
+    """Attributes the EventSubscriber archives: saved in its property and running."""
+    saved = db.get_device_property(es_name, ["AttributeList"])["AttributeList"]
+    saved = {entry.split(";")[0].lower() for entry in saved}
+    running = {a.lower() for a in (es.read_attribute("AttributeList").value or [])}
+    return saved & running
+
+
+def wait_archived(db, es, es_name, name, timeout_s=15.0):
+    """The archived set once name is in it, or after timeout_s whatever it is."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        archived = archived_names(db, es, es_name)
+        if full_name(name) in archived or time.monotonic() > deadline:
+            return archived
+        time.sleep(0.5)
+
+
+def add_through_cm(cm, es_name, attr):
+    cm.write_attribute("SetAttributeName", full_name(attr["name"]))
+    cm.write_attribute("SetArchiver", full_name(es_name))
+    cm.write_attribute("SetStrategy", "ALWAYS")
+    cm.write_attribute("SetTTL", 0)
+    cm.write_attribute("SetPollingPeriod", int(attr["polling_ms"]))
+    cm.write_attribute("SetAbsoluteEvent", float(attr.get("abs_change", 0)))
+    cm.write_attribute("SetRelativeEvent", float(attr.get("rel_change", 0)))
+    cm.write_attribute("SetPeriodEvent", int(attr.get("period_ms", 0)))
+    cm.write_attribute("SetCodePushedEvent", False)
+    cm.command_inout("AttributeAdd")
+
+
+def set_on_device(attr):
+    dev_name, _, attr_name = attr["name"].rpartition("/")
+    dev = tango.DeviceProxy(dev_name)
+    cfg = dev.get_attribute_config_ex([attr_name])[0]
+    _, abs_c, rel_c, period = wanted(attr)
+    if abs_c:
+        cfg.events.arch_event.archive_abs_change = abs_c
+    if rel_c:
+        cfg.events.arch_event.archive_rel_change = rel_c
+    if period:
+        cfg.events.arch_event.archive_period = period
+    dev.set_attribute_config([cfg])
+    dev.poll_attribute(attr_name, int(attr["polling_ms"]))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="compare only, write nothing"
+    )
+    args = parser.parse_args()
+
+    spec = json.load(sys.stdin)
+    cm = tango.DeviceProxy(spec["configuration_manager"])
+    es = tango.DeviceProxy(spec["event_subscriber"])
+    db = tango.Database()
+    archived = archived_names(db, es, spec["event_subscriber"])
+    listed = {full_name(a["name"]) for a in spec["attributes"]}
+
+    changes = []
+    failed = []
+    for attr in spec["attributes"]:
+        found = differences(attr, archived)
+        changes.extend(found)
+        if not found or args.check:
+            continue
+        if full_name(attr["name"]) not in archived:
+            add_through_cm(cm, spec["event_subscriber"], attr)
+        else:
+            set_on_device(attr)
+        archived = wait_archived(db, es, spec["event_subscriber"], attr["name"])
+        failed.extend(differences(attr, archived))
+
+    unlisted = sorted(archived - listed)
+    print(json.dumps({"changes": changes, "unlisted": unlisted, "failed": failed}))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

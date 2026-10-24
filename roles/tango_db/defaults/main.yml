@@ -34,8 +34,13 @@ tango_db_allowed_from: 10.10.10.0/24
 # with ERROR 1074). The EventSubscriber runs on this host as the system user named in
 # tango_db_hdbpp_user and logs in over the socket with unix_socket authentication:
 # no password exists anywhere (LibConfiguration carries an empty "password=").
+# Our own HDB++ packages are pinned to exact versions (from the beamline repo): any other
+# version installed is drift, and a new build is adopted by changing the pin here. The
+# -2 builds carry the Ch30 fixes (libhdb++mysql7: value_w bound only for writable
+# scalars; hdbpp-es: an added attribute is saved even right after another).
 tango_db_hdbpp_packages:
-  - libhdb++mysql7
+  - libhdb++2=2.2.1-1
+  - libhdb++mysql7=7.2.0-2
   - python3-pymysql
 tango_db_hdbpp_schema: hdbpp
 tango_db_hdbpp_schema_file: /usr/share/libhdb++mysql7/sql/create_hdb++_mariadb_innodb.sql
@@ -49,8 +54,8 @@ tango_db_mysql_socket: /run/mysqld/mysqld.sock
 # never opens the archive database in hdbpp-cm 2.2.2). python3-tango is Ubuntu's PyTango
 # for this host's cppTango 9.5.0, for files/tango-db-register only.
 tango_db_hdbpp_server_packages:
-  - hdbpp-es
-  - hdbpp-cm
+  - hdbpp-es=2.3.8-2
+  - hdbpp-cm=2.2.2-1
   - python3-tango
 tango_db_tango_host: "{{ inventory_hostname }}:{{ tango_db_port }}"
 # One entry per server, as tango_ds_servers in roles/tango_ds: registration
@@ -63,8 +68,10 @@ tango_db_tango_host: "{{ inventory_hostname }}:{{ tango_db_port }}"
 # holding several. Unlisted properties stay as they are: the EventSubscriber's
 # AttributeList belongs to it (the ConfigurationManager's AttributeAdd writes it).
 # LibConfiguration's empty password is deliberate: unix_socket ignores it, and the backend
-# refuses to start without the key. ArchiverList holds plain device names; the
-# ConfigurationManager prefixes tango://$TANGO_HOST/ itself.
+# refuses to start without the key. ignore_duplicates=1 makes the backend write
+# INSERT IGNORE, so a value already stored for the same attribute and time (a resent
+# event after a reconnection) is skipped instead of logged as an error. ArchiverList holds
+# plain device names; the ConfigurationManager prefixes tango://$TANGO_HOST/ itself.
 tango_db_hdbpp_servers:
   - name: es
     server: hdb++es-srv/01
@@ -81,6 +88,7 @@ tango_db_hdbpp_servers:
         - password=
         - "dbname={{ tango_db_hdbpp_schema }}"
         - port=3306
+        - ignore_duplicates=1
   - name: cm
     server: hdb++cm-srv/01
     class: HdbConfigurationManager
@@ -98,3 +106,44 @@ tango_db_endpoint_host: "{{ inventory_hostname }}"
 tango_db_hdbpp_log_level: 4
 # At most two starts per 10 s, under systemd's default start limit (5 in 10 s).
 tango_db_hdbpp_restart_sec: 5
+
+# --- Ch30: what is archived ---------------------------------------------------------------
+# files/tango-db-archive keeps the EventSubscriber's attributes in step with this list:
+# adds what is missing through the ConfigurationManager, corrects drifted polling or
+# criteria on the device, reports (never removes) archived attributes that are not listed.
+# polling_ms: the device polls the attribute (archive events need polling). period_ms: the
+# archive_period heartbeat, one row at least that often even without a change.
+# abs_change / rel_change: archive on a change of at least this much (absolute / percent).
+# Booleans and State archive on every change and need neither; a number with neither
+# archives only on the heartbeat (ceyag1/frame_count, on purpose: it counts every frame).
+tango_db_hdbpp_archive_polling_ms: 1000
+tango_db_hdbpp_archive_period_ms: 10000
+tango_db_hdbpp_archive:
+  - {name: linac/magnet/q1/current, abs_change: 0.05}
+  - {name: linac/magnet/q1/setpoint, abs_change: 0.01}
+  - {name: linac/magnet/q1/State}
+  - {name: linac/beam/faradaycup1/current, rel_change: 5}
+  - {name: linac/beam/faradaycup1/zero_check}
+  - {name: linac/beam/faradaycup1/State}
+  - {name: linac/camera/ceyag1/frame_count}
+  - {name: linac/camera/ceyag1/State}
+  - {name: linac/vacuum/gauge1/VacuumPressure, rel_change: 10}
+  - {name: linac/vacuum/gauge1/PumpStatus}
+  - {name: linac/vacuum/gauge1/State}
+  - {name: linac/safety/interlock1/BeamPermit}
+  - {name: linac/safety/interlock1/FaultLatched}
+  - {name: linac/safety/interlock1/DoorClosed}
+  - {name: linac/safety/interlock1/VacuumOk}
+  - {name: linac/safety/interlock1/WaterFlowOk}
+  - {name: linac/safety/interlock1/State}
+# What files/tango-db-archive reads on stdin, built from the above (change those, not this).
+tango_db_hdbpp_archive_spec:
+  configuration_manager: "{{ (tango_db_hdbpp_servers | selectattr('name', 'eq', 'cm') | first).device }}"
+  event_subscriber: "{{ (tango_db_hdbpp_servers | selectattr('name', 'eq', 'es') | first).device }}"
+  attributes: >-
+    {%- set out = [] -%}
+    {%- for attr in tango_db_hdbpp_archive -%}
+    {%- set _ = out.append({'polling_ms': tango_db_hdbpp_archive_polling_ms,
+                            'period_ms': tango_db_hdbpp_archive_period_ms} | combine(attr)) -%}
+    {%- endfor -%}
+    {{ out }}
