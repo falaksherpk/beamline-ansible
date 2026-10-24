@@ -177,3 +177,63 @@
     - tango_db_hdbpp_account is failed
     - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
   tags: [tango_db_hdbpp]
+
+# --- Ch30: registration of the HDB++ servers ---------------------------------------------
+# As roles/tango_ds does for the lab devices (Ch29): compare first (read-only, so it also
+# runs in check mode, where a difference is reported as the change a real run would make),
+# then write only what differs.
+- name: Install the HDB++ servers and PyTango (for the registration script)
+  ansible.builtin.apt:
+    name: "{{ tango_db_hdbpp_server_packages }}"
+    state: present
+  register: tango_db_hdbpp_server_install
+  tags: [tango_db_hdbpp_register]
+
+- name: Install the registration script
+  ansible.builtin.copy:
+    src: tango-db-register
+    dest: /usr/local/sbin/tango-db-register
+    owner: root
+    group: root
+    mode: "0755"
+  register: tango_db_register_script
+  tags: [tango_db_hdbpp_register]
+
+- name: Compare the HDB++ server registrations with the Tango database
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-db-register, --check]
+    stdin: "{{ tango_db_hdbpp_servers | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_db_tango_host }}"
+  register: tango_db_hdbpp_registration
+  check_mode: false
+  changed_when:
+    - ansible_check_mode
+    - tango_db_hdbpp_registration.rc == 0
+    - (tango_db_hdbpp_registration.stdout | from_json).changes | length > 0
+  # In check mode before the first install the script or PyTango isn't there yet.
+  failed_when:
+    - tango_db_hdbpp_registration.rc | default(1) != 0
+    - not (ansible_check_mode and (tango_db_register_script is changed or tango_db_hdbpp_server_install is changed))
+  tags: [tango_db_hdbpp_register]
+
+- name: Show the HDB++ registration differences
+  ansible.builtin.debug:
+    msg: "{{ (tango_db_hdbpp_registration.stdout | from_json).changes }}"
+  when:
+    - tango_db_hdbpp_registration.rc == 0
+    - (tango_db_hdbpp_registration.stdout | from_json).changes | length > 0
+  tags: [tango_db_hdbpp_register]
+
+- name: Register what differs (HDB++ servers, devices, properties)
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-db-register]
+    stdin: "{{ tango_db_hdbpp_servers | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_db_tango_host }}"
+  when:
+    - tango_db_hdbpp_registration.rc == 0
+    - (tango_db_hdbpp_registration.stdout | from_json).changes | length > 0
+  changed_when: true
+  register: tango_db_hdbpp_registration_write
+  tags: [tango_db_hdbpp_register]

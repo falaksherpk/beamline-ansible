@@ -42,3 +42,41 @@ tango_db_hdbpp_schema_file: /usr/share/libhdb++mysql7/sql/create_hdb++_mariadb_i
 tango_db_hdbpp_user: hdbpp
 tango_db_hdbpp_privileges: SELECT,INSERT,UPDATE
 tango_db_mysql_socket: /run/mysqld/mysqld.sock
+
+# --- Ch30: the HDB++ servers -------------------------------------------------------------
+# The ConfigurationManager and the EventSubscriber run on this host, next to MariaDB, as
+# tango_db_hdbpp_user (the EventSubscriber's unix_socket identity; the ConfigurationManager
+# never opens the archive database in hdbpp-cm 2.2.2). python3-tango is Ubuntu's PyTango
+# for this host's cppTango 9.5.0, for files/tango-db-register only.
+tango_db_hdbpp_server_packages:
+  - hdbpp-es
+  - hdbpp-cm
+  - python3-tango
+tango_db_tango_host: "{{ inventory_hostname }}:{{ tango_db_port }}"
+# One entry per server, as tango_ds_servers in roles/tango_ds (registration now, a unit
+# each in the next step). Property values are strings, or lists of strings for properties
+# holding several. Unlisted properties stay as they are: the EventSubscriber's
+# AttributeList belongs to it (the ConfigurationManager's AttributeAdd writes it).
+# LibConfiguration's empty password is deliberate: unix_socket ignores it, and the backend
+# refuses to start without the key. ArchiverList holds plain device names; the
+# ConfigurationManager prefixes tango://$TANGO_HOST/ itself.
+tango_db_hdbpp_servers:
+  - name: es
+    server: hdb++es-srv/01
+    class: HdbEventSubscriber
+    device: archiving/hdbpp/eventsubscriber01
+    properties:
+      LibConfiguration:
+        - libname=libhdb++mysql.so.7
+        - host=localhost
+        - "user={{ tango_db_hdbpp_user }}"
+        - password=
+        - "dbname={{ tango_db_hdbpp_schema }}"
+        - port=3306
+  - name: cm
+    server: hdb++cm-srv/01
+    class: HdbConfigurationManager
+    device: archiving/hdbpp/confmanager01
+    properties:
+      ArchiverList:
+        - archiving/hdbpp/eventsubscriber01
