@@ -27,3 +27,18 @@ tango_db_debconf:
 tango_db_schema: tango
 tango_db_port: 10000
 tango_db_allowed_from: 10.10.10.0/24
+
+# HDB++ archive database (handbook Part 3, Ch30). The schema file comes from our
+# libhdb++mysql7 package (beamline-hdbpp); of its MariaDB/MySQL InnoDB files only
+# create_hdb++_mariadb_innodb.sql loads on MariaDB 10.11 (the MySQL JSON variant stops
+# with ERROR 1074). The EventSubscriber runs on this host as the system user named in
+# tango_db_hdbpp_user and logs in over the socket with unix_socket authentication:
+# no password exists anywhere (LibConfiguration carries an empty "password=").
+tango_db_hdbpp_packages:
+  - libhdb++mysql7
+  - python3-pymysql
+tango_db_hdbpp_schema: hdbpp
+tango_db_hdbpp_schema_file: /usr/share/libhdb++mysql7/sql/create_hdb++_mariadb_innodb.sql
+tango_db_hdbpp_user: hdbpp
+tango_db_hdbpp_privileges: SELECT,INSERT,UPDATE
+tango_db_mysql_socket: /run/mysqld/mysqld.sock

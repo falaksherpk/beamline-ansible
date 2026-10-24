@@ -58,7 +58,8 @@
 # omits them fails ("Field 'date' doesn't have a default value"; found in Sept 2026 when
 # Sardana wrote memorized-attribute history). Every such column gets
 # DEFAULT CURRENT_TIMESTAMP, keeping ON UPDATE where it is set. Plain command + the mariadb
-# client over the root socket: no extra collection needed on the control node.
+# client over the root socket (written in Ch23). The HDB++ tasks below use community.mysql;
+# both, like community.general.ufw, come with Ubuntu's ansible package on admin.
 - name: Find TIMESTAMP NOT NULL columns without a default in the Tango schema
   ansible.builtin.command:
     argv:
@@ -100,3 +101,79 @@
     proto: tcp
     from_ip: "{{ tango_db_allowed_from }}"
     comment: Tango Database (DataBaseds), lab network (Ch23)
+
+# HDB++ archive database (handbook Part 3, Ch30): the backend package with its schema
+# files, the system user the EventSubscriber runs as, the hdbpp database loaded once from
+# the MariaDB schema file, and a unix_socket account for that user. community.mysql
+# connects as root over the socket and needs PyMySQL here.
+- name: Install the HDB++ MySQL backend (schema files) and PyMySQL
+  ansible.builtin.apt:
+    name: "{{ tango_db_hdbpp_packages }}"
+    state: present
+  register: tango_db_hdbpp_install
+  tags: [tango_db_hdbpp]
+
+- name: Create the system user the HDB++ EventSubscriber runs as
+  ansible.builtin.user:
+    name: "{{ tango_db_hdbpp_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+  tags: [tango_db_hdbpp]
+
+- name: Create the HDB++ database
+  community.mysql.mysql_db:
+    name: "{{ tango_db_hdbpp_schema }}"
+    state: present
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+  register: tango_db_hdbpp_db
+  failed_when:
+    - tango_db_hdbpp_db is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
+  tags: [tango_db_hdbpp]
+
+- name: Check whether the HDB++ schema is loaded
+  community.mysql.mysql_query:
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+    query: >-
+      SELECT COUNT(*) AS n FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'att_conf'
+    positional_args: ["{{ tango_db_hdbpp_schema }}"]
+  register: tango_db_hdbpp_schema_check
+  changed_when: false
+  check_mode: false
+  failed_when:
+    - tango_db_hdbpp_schema_check is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
+  tags: [tango_db_hdbpp]
+
+# The schema file starts with DROP TABLE IF EXISTS for every table: it runs only into an
+# empty database, never again.
+- name: Load the HDB++ schema into the empty database
+  community.mysql.mysql_db:
+    name: "{{ tango_db_hdbpp_schema }}"
+    state: import
+    target: "{{ tango_db_hdbpp_schema_file }}"
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+  register: tango_db_hdbpp_schema_load
+  when: >-
+    (tango_db_hdbpp_schema_check.query_result | default([[{'n': 0}]]))[0][0].n | int == 0
+  failed_when:
+    - tango_db_hdbpp_schema_load is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
+  tags: [tango_db_hdbpp]
+
+- name: Give the HDB++ user its unix_socket account and privileges
+  community.mysql.mysql_user:
+    name: "{{ tango_db_hdbpp_user }}"
+    host: localhost
+    plugin: unix_socket
+    priv: "{{ tango_db_hdbpp_schema }}.*:{{ tango_db_hdbpp_privileges }}"
+    state: present
+    login_unix_socket: "{{ tango_db_mysql_socket }}"
+  register: tango_db_hdbpp_account
+  failed_when:
+    - tango_db_hdbpp_account is failed
+    - not (ansible_check_mode and (tango_db_server_install is changed or tango_db_hdbpp_install is changed))
+  tags: [tango_db_hdbpp]
