@@ -16,7 +16,8 @@ tango_ds_apt_packages:
 
 # pip, system-wide, the same pins as tango-devices' ci/Dockerfile (the versions Ch2-7 were
 # tested with). Change a version here and in ci/Dockerfile together, in one commit.
-# numpy comes with pytango.
+# numpy comes with pytango. sardana (Ch31) brings its own dependencies unpinned, as in
+# ci/Dockerfile: taurus 5.4.1, lxml, Pint, flexcache, flexparser, platformdirs (2026-10-25).
 tango_ds_pip_packages:
   - pytango==10.3.1
   - pymodbus==3.15.0
@@ -24,6 +25,7 @@ tango_ds_pip_packages:
   - pytest==9.1.1
   - ruff==0.16.5
   - py-spy==0.4.2
+  - sardana==3.7.0
 
 # Removed from hosts that still have them (Ch27). Purged, so the service, its configuration
 # and /var/lib/redis go too. The libraries redis-server pulled in (libatomic1, libjemalloc2,
