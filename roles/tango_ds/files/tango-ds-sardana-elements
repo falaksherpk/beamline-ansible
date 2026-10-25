@@ -29,6 +29,8 @@ a difference it won't fix; any Tango error exits non-zero with its traceback
 import argparse
 import json
 import pickle
+import queue
+import re
 import sys
 import time
 
@@ -79,18 +81,63 @@ def environment(macroserver):
     return pickle.loads(data).get("new", {})
 
 
+MACRO_ENDS = ("finish", "stop", "abort", "exception")
+
+
 def run_macro(door, args, seconds=30):
-    """Run one macro on the Door and wait until it is no longer RUNNING."""
-    if door.state() != tango.DevState.ON:
-        raise RuntimeError(f"door {door.dev_name()} is {door.state()}, not ON")
-    door.RunMacro(args)
-    deadline = time.monotonic() + seconds
-    while door.state() == tango.DevState.RUNNING:
-        if time.monotonic() > deadline:
-            raise RuntimeError(f"macro {args} still running after {seconds} s")
-        time.sleep(0.2)
-    if door.state() != tango.DevState.ON:
-        raise RuntimeError(f"macro {args} left the door {door.state()}")
+    """Run one macro on the Door and wait for its own end; raise unless it finished.
+
+    RunMacro is asynchronous: it returns the macro's id before the Door is RUNNING,
+    so polling the Door's state right after it can read ON and stop waiting before
+    the macro has started (1 in 20 moves, Ch31). Instead this follows the Door's
+    State and MacroStatus change events, which arrive in order: the macro ended when
+    the Door leaves RUNNING, and finished if MacroStatus says "finish" for its id. A
+    macro rejected before it starts (an unknown motor) sends no MacroStatus and
+    leaves the Door in ALARM. The Door accepts a new macro in ON or ALARM (the last
+    one failed).
+    """
+    if door.state() not in (tango.DevState.ON, tango.DevState.ALARM):
+        raise RuntimeError(f"door {door.dev_name()} is {door.state()}, not ON or ALARM")
+    events = queue.Queue()
+    subscriptions = [
+        door.subscribe_event(name, tango.EventType.CHANGE_EVENT, events.put)
+        for name in ("State", "MacroStatus")
+    ]
+    try:
+        macro_id = re.search(r'id="([^"]+)"', door.RunMacro(args)[0]).group(1)
+        status, running, ended = None, False, None
+        deadline = time.monotonic() + seconds
+        while status is None:
+            if ended is not None:
+                # The Door has left RUNNING: give a late MacroStatus a moment.
+                deadline = min(deadline, ended + 1)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                event = events.get(timeout=remaining)
+            except queue.Empty:
+                break
+            if event.err:
+                continue
+            value = event.attr_value.value
+            if event.attr_name.rsplit("/", 1)[-1].lower() == "macrostatus":
+                for item in json.loads(value[1]) if value and value[1] else []:
+                    if item.get("id") == macro_id and item.get("state") in MACRO_ENDS:
+                        status = item["state"]
+            elif value == tango.DevState.RUNNING:
+                running = True
+            elif running and ended is None:
+                ended = time.monotonic()
+    finally:
+        for subscription in subscriptions:
+            door.unsubscribe_event(subscription)
+    if status == "finish":
+        return
+    if ended is None and status is None:
+        raise RuntimeError(f"macro {args} did not end within {seconds} s")
+    error = " ".join(door.read_attribute("Error").value or []).strip()
+    raise RuntimeError(f"macro {args} ended {status or door.state()}: {error}")
 
 
 def main():
