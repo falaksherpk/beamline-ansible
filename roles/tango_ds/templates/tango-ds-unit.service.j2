@@ -27,6 +27,9 @@ After=tango-{{ peer }}.service
 BindsTo=tango-{{ unit.binds_to }}.service
 After=tango-{{ unit.binds_to }}.service
 {% endif %}
+{% for peer in unit.part_of | default([]) %}
+PartOf=tango-{{ peer }}.service
+{% endfor %}
 
 [Service]
 Type=simple

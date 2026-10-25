@@ -199,13 +199,18 @@ tango_ds_restart_sec: 5
 #   unit needs no writable path. Given a path it can't write, init_device() replaces this
 #   property with a mkdtemp() path in the database; the role would show that as drift.
 # Ports continue tango_ds_servers' blocks just below them (..66 Pool, ..67 MacroServer).
-# ports, exec and after are for the units and their ufw rules (Ch31).
+# ports, exec and after are for the units and their ufw rules (Ch31). A macro started in
+# the first seconds after a Pool restart can hang for good, its motion waiting on events
+# from the old Pool, and won't abort (Ch31 LAB 31.7). So the MacroServer is PartOf= the
+# Pool (a Pool stop or restart takes it along, a Pool start doesn't), and the Pool counts
+# as started only once it listens (ready), so the MacroServer after it finds it serving.
 tango_ds_sardana_servers:
   - name: pool
     server: Pool/linac
     exec: /usr/local/bin/Pool
     ports: {corba: 28366, heartbeat: 28466, event: 28566}
     after: [magnet, faradaycup]
+    ready: listen 28366
     devices:
       - class: Pool
         device: pool/linac/1
@@ -217,6 +222,7 @@ tango_ds_sardana_servers:
     exec: /usr/local/bin/MacroServer
     ports: {corba: 28367, heartbeat: 28467, event: 28567}
     after: [pool]
+    part_of: [pool]
     devices:
       - class: MacroServer
         device: macroserver/linac/1
