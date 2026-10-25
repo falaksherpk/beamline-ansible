@@ -194,6 +194,15 @@
     mode: "0755"
   tags: [tango_ds_services]
 
+- name: Install the MacroServer's readiness check (Ch31)
+  ansible.builtin.copy:
+    src: tango-ds-sardana-ready
+    dest: /usr/local/sbin/tango-ds-sardana-ready
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [tango_ds_services]
+
 - name: Install the target that groups the Tango lab units
   ansible.builtin.template:
     src: tango-lab.target.j2

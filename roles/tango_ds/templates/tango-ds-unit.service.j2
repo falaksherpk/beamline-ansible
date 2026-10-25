@@ -60,6 +60,11 @@ RuntimeDirectory={{ unit.runtime_dir }}
 # Started only once it can serve (Type=simple alone counts the fork).
 ExecStartPost=/usr/local/sbin/tango-ds-wait {{ unit.ready }}
 {% endif %}
+{% if unit.ready_pool is defined %}
+# Started only once it knows every element its Pool has: its Door answers before that,
+# and a macro started then fails with "does not exist" (Ch31).
+ExecStartPost=/usr/local/sbin/tango-ds-sardana-ready {{ unit.devices[0].device }} {{ unit.ready_pool }}
+{% endif %}
 Restart=on-failure
 RestartSec={{ tango_ds_restart_sec }}
 

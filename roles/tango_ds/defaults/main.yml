@@ -204,6 +204,8 @@ tango_ds_restart_sec: 5
 # from the old Pool, and won't abort (Ch31 LAB 31.7). So the MacroServer is PartOf= the
 # Pool (a Pool stop or restart takes it along, a Pool start doesn't), and the Pool counts
 # as started only once it listens (ready), so the MacroServer after it finds it serving.
+# The MacroServer itself counts as started once it knows every element the Pool has
+# (ready_pool, files/tango-ds-sardana-ready): its Door answers about a second earlier.
 tango_ds_sardana_servers:
   - name: pool
     server: Pool/linac
@@ -223,6 +225,7 @@ tango_ds_sardana_servers:
     ports: {corba: 28367, heartbeat: 28467, event: 28567}
     after: [pool]
     part_of: [pool]
+    ready_pool: pool/linac/1
     devices:
       - class: MacroServer
         device: macroserver/linac/1
