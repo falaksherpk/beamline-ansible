@@ -230,3 +230,35 @@ tango_ds_sardana_servers:
 # Console level of Sardana's servers, all of which goes to the journal (Ch31): info shows
 # the controller and macro modules each server loads at start; warning would hide them.
 tango_ds_sardana_log_level: info
+
+# The Sardana lab's elements (Ch31), created by files/tango-ds-sardana-elements once the
+# servers run: the magnet as a motor and the Faraday cup as a 0D channel (Ch7's design),
+# the measurement group the scans use, and the MacroServer variable that selects it. The
+# names are the ones tango-devices' sardana_controllers/tests use. An existing element
+# that differs from this is an error: the script never deletes or recreates one
+# (deleting controllers triggered Ch7's MacroServer race). library is the module name.
+tango_ds_sardana_elements:
+  pool: pool/linac/1
+  macroserver: macroserver/linac/1
+  door: door/linac/1
+  controllers:
+    - name: magnet_ctrl
+      type: Motor
+      library: magnet_motor_ctrl
+      klass: MagnetMotorController
+      properties:
+        TangoDevice: linac/magnet/q1
+      elements:
+        - {name: magnet_mot, axis: 1, full_name: motor/magnet_ctrl/1}
+    - name: fc_ctrl
+      type: ZeroDExpChannel
+      library: faraday_zerod_ctrl
+      klass: FaradayZeroDController
+      properties:
+        TangoDevice: linac/beam/faradaycup1
+      elements:
+        - {name: fc_ctr, axis: 1, full_name: expchan/fc_ctrl/1}
+  measurement_groups:
+    - {name: fc_mg, full_name: mntgrp/pool_linac_1/fc_mg, elements: [fc_ctr]}
+  environment:
+    ActiveMntGrp: fc_mg

@@ -395,3 +395,58 @@
     - tango_ds_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_ds_services]
+
+# --- Ch31: Sardana's elements -------------------------------------------------------------
+# Controllers, elements and measurement groups live in the Tango database, the MacroServer
+# environment in SardanaEnv_linac's free properties. The role keeps them in step with
+# tango_ds_sardana_elements as it does registrations: compare first (read-only, so it also
+# runs in check mode), then create only what is missing. A difference it won't fix fails
+# the play with the script's errors (exit 2), in check mode too.
+- name: Install the Sardana elements script
+  ansible.builtin.copy:
+    src: tango-ds-sardana-elements
+    dest: /usr/local/sbin/tango-ds-sardana-elements
+    owner: root
+    group: root
+    mode: "0755"
+  register: tango_ds_elements_script
+  tags: [tango_ds_sardana_elements]
+
+- name: Compare the Sardana elements with the Pool and the MacroServer
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-ds-sardana-elements, --check]
+    stdin: "{{ tango_ds_sardana_elements | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_ds_tango_host }}"
+  register: tango_ds_elements
+  check_mode: false
+  changed_when:
+    - ansible_check_mode
+    - tango_ds_elements.rc == 0
+    - (tango_ds_elements.stdout | from_json).changes | length > 0
+  # In check mode before the first install the script, or the servers, may not exist yet.
+  failed_when:
+    - tango_ds_elements.rc | default(1) != 0
+    - not (ansible_check_mode and (tango_ds_elements_script is changed or
+      tango_ds_sardana_units | default({}) is changed))
+  tags: [tango_ds_sardana_elements]
+
+- name: Show the Sardana element differences
+  ansible.builtin.debug:
+    msg: "{{ (tango_ds_elements.stdout | from_json).changes }}"
+  when:
+    - tango_ds_elements.rc == 0
+    - (tango_ds_elements.stdout | from_json).changes | length > 0
+  tags: [tango_ds_sardana_elements]
+
+- name: Create what is missing (controllers, elements, measurement groups, environment)
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/tango-ds-sardana-elements]
+    stdin: "{{ tango_ds_sardana_elements | to_json }}"
+  environment:
+    TANGO_HOST: "{{ tango_ds_tango_host }}"
+  when:
+    - tango_ds_elements.rc == 0
+    - (tango_ds_elements.stdout | from_json).changes | length > 0
+  changed_when: true
+  tags: [tango_ds_sardana_elements]

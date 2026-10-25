@@ -1,0 +1,221 @@
+#!/usr/bin/python3
+"""Create the Sardana lab's controllers, elements and measurement groups, idempotently.
+
+Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+
+Reads one JSON object on stdin (tango_ds_sardana_elements): the Pool, MacroServer and
+Door device names; "controllers", each with type, library (module name), klass,
+properties and its "elements" (name, axis, full_name); "measurement_groups" (name,
+full_name, elements); and "environment", MacroServer variables to set (ActiveMntGrp).
+
+It compares first: a missing item is a change, and an existing one that differs (another
+class, module, property value, controller, axis, device name or member list) is an
+error. With any error it writes nothing and exits 2: it never deletes or recreates an
+element (deleting controllers is destructive, and was the trigger of a MacroServer race
+in Ch7). Otherwise, without --check, it creates what is missing in dependency order
+(controllers, elements, measurement groups) on the Pool, and sets the environment with
+senv through the Door. The Pool commands get their sequence-of-strings form: in Sardana
+3.7.0 their JSON form turns every value into a string, and CreateController's then
+checks its keys on a list, so it always fails with "Missing key 'type'" (Ch31).
+CreateMeasurementGroup's sequence form takes no device name; Sardana gives the group
+mntgrp/<pool alias>/<name>, which full_name states and the comparison checks.
+
+Prints one JSON line, {"changes": [...], "errors": [...]}. Waits up to --wait seconds
+for the three servers, which the play may just have restarted. Exit 0 on success, 2 on
+a difference it won't fix; any Tango error exits non-zero with its traceback
+(handbook Part 3, Ch31).
+"""
+
+import argparse
+import json
+import pickle
+import sys
+import time
+
+import tango
+
+
+def wait_for(devices, seconds):
+    """Proxies for devices, once each answers state(); raises the last error after seconds."""
+    deadline = time.monotonic() + seconds
+    proxies = {}
+    for name in devices:
+        while True:
+            try:
+                proxy = tango.DeviceProxy(name)
+                proxy.state()
+                proxies[name] = proxy
+                break
+            except tango.DevFailed:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1)
+    return proxies
+
+
+def by_name(pool, attribute):
+    """The Pool's list attribute as {name: serialized element}."""
+    return {
+        item["name"]: item
+        for item in (
+            json.loads(s) for s in (pool.read_attribute(attribute).value or [])
+        )
+    }
+
+
+def device_name(full_name):
+    """A Tango device name without a tango://host:port/ prefix, lower case."""
+    if full_name.startswith("tango://"):
+        full_name = full_name.split("/", 3)[3]
+    return full_name.lower()
+
+
+def environment(macroserver):
+    """The MacroServer's environment. Its Environment attribute is pickled by the
+    MacroServer this lab runs itself (the format Sardana's clients read)."""
+    fmt, data = macroserver.Environment
+    if fmt != "pickle":
+        raise RuntimeError(f"unexpected Environment format {fmt}")
+    return pickle.loads(data).get("new", {})
+
+
+def run_macro(door, args, seconds=30):
+    """Run one macro on the Door and wait until it is no longer RUNNING."""
+    if door.state() != tango.DevState.ON:
+        raise RuntimeError(f"door {door.dev_name()} is {door.state()}, not ON")
+    door.RunMacro(args)
+    deadline = time.monotonic() + seconds
+    while door.state() == tango.DevState.RUNNING:
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"macro {args} still running after {seconds} s")
+        time.sleep(0.2)
+    if door.state() != tango.DevState.ON:
+        raise RuntimeError(f"macro {args} left the door {door.state()}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="compare only, write nothing"
+    )
+    parser.add_argument(
+        "--wait", type=int, default=60, help="seconds to wait for the servers"
+    )
+    args = parser.parse_args()
+
+    want = json.load(sys.stdin)
+    servers = wait_for([want["pool"], want["macroserver"], want["door"]], args.wait)
+    pool, ms, door = (servers[want[k]] for k in ("pool", "macroserver", "door"))
+    db = tango.Database()
+
+    controllers = by_name(pool, "ControllerList")
+    elements = {**by_name(pool, "MotorList"), **by_name(pool, "ExpChannelList")}
+    groups = by_name(pool, "MeasurementGroupList")
+    changes, errors, actions = [], [], []
+
+    for ctrl in want["controllers"]:
+        name = ctrl["name"]
+        have = controllers.get(name)
+        if have is None:
+            changes.append(
+                f"controller {name}: create ({ctrl['klass']}, {ctrl['properties']})"
+            )
+            props = [str(x) for item in ctrl["properties"].items() for x in item]
+            actions.append(
+                (
+                    "CreateController",
+                    [ctrl["type"], ctrl["library"], ctrl["klass"], name, *props],
+                )
+            )
+        else:
+            for key, value in (("klass", ctrl["klass"]), ("module", ctrl["library"])):
+                if have.get(key) != value:
+                    errors.append(
+                        f"controller {name}: {key} is {have.get(key)}, want {value}"
+                    )
+            stored = db.get_device_property(
+                device_name(have["full_name"]), list(ctrl["properties"])
+            )
+            for prop, value in ctrl["properties"].items():
+                if list(stored.get(prop, [])) != [str(value)]:
+                    errors.append(
+                        f"controller {name}: property {prop} is {list(stored.get(prop, []))}, want {value}"
+                    )
+        for elem in ctrl["elements"]:
+            ename = elem["name"]
+            have_e = elements.get(ename)
+            if have_e is None:
+                changes.append(
+                    f"element {ename}: create ({ctrl['type']} axis {elem['axis']} on {name}, {elem['full_name']})"
+                )
+                actions.append(
+                    (
+                        "CreateElement",
+                        [
+                            ctrl["type"],
+                            name,
+                            str(elem["axis"]),
+                            ename,
+                            elem["full_name"],
+                        ],
+                    )
+                )
+                continue
+            if have is None or device_name(have_e["controller"]) != device_name(
+                have["full_name"]
+            ):
+                errors.append(
+                    f"element {ename}: on controller {have_e['controller']}, want {name}"
+                )
+            if int(have_e["axis"]) != int(elem["axis"]):
+                errors.append(
+                    f"element {ename}: axis {have_e['axis']}, want {elem['axis']}"
+                )
+            if device_name(have_e["full_name"]) != device_name(elem["full_name"]):
+                errors.append(
+                    f"element {ename}: device {have_e['full_name']}, want {elem['full_name']}"
+                )
+
+    for mg in want["measurement_groups"]:
+        name = mg["name"]
+        have = groups.get(name)
+        if have is None:
+            changes.append(
+                f"measurement group {name}: create ({mg['elements']}, {mg['full_name']})"
+            )
+            actions.append(("CreateMeasurementGroup", [name, *mg["elements"]]))
+            continue
+        if device_name(have["full_name"]) != device_name(mg["full_name"]):
+            errors.append(
+                f"measurement group {name}: device {have['full_name']}, want {mg['full_name']}"
+            )
+        members = list(
+            tango.DeviceProxy(device_name(have["full_name"])).ElementList or []
+        )
+        if members != mg["elements"]:
+            errors.append(
+                f"measurement group {name}: elements {members}, want {mg['elements']}"
+            )
+
+    env = environment(ms)
+    for key, value in want["environment"].items():
+        if env.get(key) != value:
+            changes.append(
+                f"environment {key}: {value} (MacroServer has {env.get(key)})"
+            )
+            actions.append(("senv", [key, str(value)]))
+
+    print(json.dumps({"changes": changes, "errors": errors}))
+    if errors:
+        sys.exit(2)
+    if args.check:
+        return
+    for command, data in actions:
+        if command == "senv":
+            run_macro(door, ["senv", *data])
+        else:
+            pool.command_inout(command, data)
+
+
+if __name__ == "__main__":
+    main()
