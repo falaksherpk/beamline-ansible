@@ -227,3 +227,6 @@ tango_ds_sardana_servers:
       - class: Door
         device: door/linac/1
         alias: Door_linac_1
+# Console level of Sardana's servers, all of which goes to the journal (Ch31): info shows
+# the controller and macro modules each server loads at start; warning would hide them.
+tango_ds_sardana_log_level: info

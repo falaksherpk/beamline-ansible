@@ -1,11 +1,15 @@
 # Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
-{% if unit.server is defined %}
+{% if unit.exec is defined %}
+# Sardana server {{ unit.server }} ({{ unit.devices | map(attribute='device') | join(', ') }}), started after {{ unit.after | join(', ') }}.
+{% elif unit.server is defined %}
 # Tango device server {{ unit.server }} ({{ unit.device }}), started after its simulators.
 {% else %}
 # Simulator for the Tango lab: on 127.0.0.1 or ptys only, never opened in ufw.
 {% endif %}
 [Unit]
-{% if unit.server is defined %}
+{% if unit.exec is defined %}
+Description=Sardana server {{ unit.server }} ({{ unit.devices | map(attribute='device') | join(', ') }}) (handbook Part 3, Ch31)
+{% elif unit.server is defined %}
 Description=Tango device server {{ unit.server }} ({{ unit.device }}) (handbook Part 3, Ch29)
 {% else %}
 Description={{ unit.description }} (handbook Part 3, Ch29)
@@ -34,7 +38,13 @@ Group={{ tango_ds_service_user }}
 Environment=TANGO_HOST={{ tango_ds_tango_host }}
 Environment=TANGO_ZMQ_HEARTBEAT_PORT={{ unit.ports.heartbeat }}
 Environment=TANGO_ZMQ_EVENT_PORT={{ unit.ports.event }}
+{% if unit.exec is defined %}
+# Logs go to the journal only: --without-log-file takes a value, and any non-empty one
+# turns Sardana's own log file off (it would land in the private /tmp, gone at a restart).
+ExecStart=/usr/bin/python3 -u {{ unit.exec }} {{ unit.server.split('/')[1] }} -ORBendPoint giop:tcp:{{ tango_ds_endpoint_host }}:{{ unit.ports.corba }} --log-level {{ tango_ds_sardana_log_level }} --without-log-file True
+{% else %}
 ExecStart=/usr/bin/python3 -u {{ tango_ds_code_dir }}/{{ unit.script }} {{ unit.server.split('/')[1] }} -ORBendPoint giop:tcp:{{ tango_ds_endpoint_host }}:{{ unit.ports.corba }} -v{{ tango_ds_log_level }}
+{% endif %}
 {% elif unit.command is defined %}
 ExecStart={{ unit.command }}
 {% else %}

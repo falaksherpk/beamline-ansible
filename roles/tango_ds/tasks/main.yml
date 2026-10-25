@@ -234,6 +234,23 @@
   notify: Reload systemd
   tags: [tango_ds_services]
 
+# Sardana's Pool and MacroServer (Ch31), from the same template, with Wants= and After= only:
+# each copes with the other missing or restarting (Ch31 probe P4), so neither binds to it.
+- name: Install the Sardana server units
+  ansible.builtin.template:
+    src: tango-ds-unit.service.j2
+    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ tango_ds_sardana_servers }}"
+  loop_control:
+    loop_var: unit
+    label: "tango-{{ unit.name }}"
+  register: tango_ds_sardana_units
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
 # The firewall opens each kind of port as one range; a gap or a duplicate would open a
 # port no server owns, or leave one closed.
 - name: Check that each kind of fixed port forms one contiguous block
@@ -264,6 +281,35 @@
     loop_var: kind
   tags: [tango_ds_firewall]
 
+- name: Check that each kind of Sardana port forms one block, clear of the device servers'
+  ansible.builtin.assert:
+    that:
+      - ports | unique | length == tango_ds_sardana_servers | length
+      - (ports | max) - (ports | min) + 1 == tango_ds_sardana_servers | length
+      - ports | intersect(tango_ds_servers | map(attribute='ports.' ~ kind) | list) | length == 0
+    fail_msg: "Sardana {{ kind }} ports {{ ports | sort }} are not one free contiguous block"
+    quiet: true
+  vars:
+    ports: "{{ tango_ds_sardana_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_ds_firewall]
+
+- name: Open Sardana's fixed ports to the lab network
+  community.general.ufw:
+    rule: allow
+    port: "{{ ports | min }}:{{ ports | max }}"
+    proto: tcp
+    from_ip: "{{ tango_ds_allowed_from }}"
+    comment: "Sardana servers, {{ kind }} ports, lab network (Ch31)"
+  vars:
+    ports: "{{ tango_ds_sardana_servers | map(attribute='ports.' ~ kind) | list }}"
+  loop: [corba, heartbeat, event]
+  loop_control:
+    loop_var: kind
+  tags: [tango_ds_firewall]
+
 - name: Make systemd read the new and changed units now
   ansible.builtin.meta: flush_handlers
   tags: [tango_ds_services]
@@ -272,7 +318,7 @@
   ansible.builtin.systemd_service:
     name: "tango-{{ unit }}.service"
     enabled: true
-  loop: "{{ (tango_ds_simulators + tango_ds_servers) | map(attribute='name') | list }}"
+  loop: "{{ (tango_ds_simulators + tango_ds_servers + tango_ds_sardana_servers) | map(attribute='name') | list }}"
   loop_control:
     loop_var: unit
   # In check mode the units above are only simulated, so systemd doesn't know them yet.
@@ -322,6 +368,29 @@
     - >-
       item is changed or (registration_written and
       registration_changes | select('match', item.unit.device ~ ':') | list | length > 0)
+    - tango_ds_target is succeeded
+    - tango_ds_target is not changed
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_services]
+
+# The Pool before the MacroServer (list order). A unit installed by this run is inactive
+# until here: the target is already active, so starting it again starts nothing new, and
+# restarted starts an inactive unit.
+- name: Restart the Sardana servers whose unit file or registration changed
+  ansible.builtin.systemd_service:
+    name: "tango-{{ item.unit.name }}.service"
+    state: restarted
+  loop: "{{ tango_ds_sardana_units.results }}"
+  loop_control:
+    label: "tango-{{ item.unit.name }}"
+  vars:
+    registration_written: "{{ tango_ds_registration_write | default({}) is changed }}"
+    registration_changes: "{{ (tango_ds_registration.stdout | default('{}', true) | from_json).changes | default([]) }}"
+    changed_devices: "{{ registration_changes | map('regex_replace', ':.*$', '') | list }}"
+  when:
+    - >-
+      item is changed or (registration_written and
+      changed_devices | intersect(item.unit.devices | map(attribute='device') | list) | length > 0)
     - tango_ds_target is succeeded
     - tango_ds_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
