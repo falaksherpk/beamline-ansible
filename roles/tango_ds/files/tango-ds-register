@@ -1,18 +1,27 @@
 #!/usr/bin/python3
-"""Register Tango device servers and their properties, idempotently.
+"""Register Tango device servers, their devices, aliases and properties, idempotently.
 
 Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
 
-Reads a JSON list on stdin, one object per device: {"server": "magnet_power_supply/q1",
-"class": "MagnetPowerSupply", "device": "linac/magnet/q1", "properties": {...}}; other
-keys are ignored. For each device it adds the server/device entry if the database
-doesn't have it under that server and class, and writes each listed property whose
-stored value differs. Nothing else is touched: unlisted properties, attribute
-properties and memorized values stay as they are.
+Reads a JSON list on stdin, one object per server, in one of two forms:
+- one device, as the lab's device servers (Ch29): {"server": "magnet_power_supply/q1",
+  "class": "MagnetPowerSupply", "device": "linac/magnet/q1", "properties": {...}};
+- several devices, as Sardana's servers (Ch31): {"server": "MacroServer/linac",
+  "devices": [{"class": "Door", "device": "door/linac/1", "alias": "Door_linac_1",
+  "properties": {...}}, ...]}.
+Other keys are ignored; "alias" and "properties" are optional. A property value is a
+string or a list of strings, as the database stores them.
 
-Prints one JSON line, {"changes": [...]}, one text per difference. With --check it only
-compares and writes nothing. Exit 0 on success; any Tango error exits non-zero with its
-traceback (handbook Part 3, Ch29).
+For each device it adds the server/device entry if the database doesn't have it under
+that server and class, sets the alias if one is listed and the device's differs, and
+writes each listed property whose stored value differs. Nothing else is touched:
+unlisted properties, attribute properties, memorized values and free properties (where
+Sardana keeps the MacroServer's environment) stay as they are. An alias that already
+names another device is an error, never moved.
+
+Prints one JSON line, {"changes": [...]}, one text per difference, each starting with
+"<device>:". With --check it only compares and writes nothing. Exit 0 on success; any
+Tango error exits non-zero with its traceback (handbook Part 3, Ch29 and Ch31).
 """
 
 import argparse
@@ -33,6 +42,39 @@ def stored_registration(db, device):
     return (info.ds_full_name, info.class_name)
 
 
+def stored_alias(db, device):
+    """The alias the database holds for device, or None if it holds none."""
+    try:
+        return db.get_alias_from_device(device)
+    except tango.DevFailed as e:
+        if e.args[0].reason == "DB_AliasNotDefined":
+            return None
+        raise
+
+
+def alias_owner(db, alias):
+    """The device the database holds alias for, or None if no device has it."""
+    try:
+        return db.get_device_from_alias(alias)
+    except tango.DevFailed as e:
+        if e.args[0].reason == "DB_DeviceNotDefined":
+            return None
+        raise
+
+
+def as_stored(value):
+    """A property value as the database returns it: a list of strings."""
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def devices_of(entry):
+    """(server, device object) for each device of one entry, in either form."""
+    for dev in entry.get("devices", [entry]):
+        yield entry["server"], dev
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -44,9 +86,9 @@ def main():
     db = tango.Database()
     changes = []
 
-    for entry in entries:
-        device = entry["device"]
-        wanted = (entry["server"], entry["class"])
+    for server, dev in (pair for entry in entries for pair in devices_of(entry)):
+        device = dev["device"]
+        wanted = (server, dev["class"])
         stored = stored_registration(db, device)
         if stored != wanted:
             changes.append(
@@ -60,7 +102,22 @@ def main():
                 info._class = wanted[1]
                 db.add_device(info)
 
-        props = {name: [str(value)] for name, value in entry["properties"].items()}
+        alias = dev.get("alias")
+        if alias is not None:
+            owner = alias_owner(db, alias)
+            if owner is not None and owner.lower() != device.lower():
+                sys.exit(f"refusing: alias {alias} already names {owner}, not {device}")
+            have_alias = stored_alias(db, device)
+            if have_alias != alias:
+                changes.append(f"{device}: alias {alias} (database has {have_alias})")
+                if not args.check:
+                    if have_alias is not None:
+                        db.delete_device_alias(have_alias)
+                    db.put_device_alias(device, alias)
+
+        props = {name: as_stored(v) for name, v in dev.get("properties", {}).items()}
+        if not props:
+            continue
         have = db.get_device_property(device, list(props))
         differ = {
             name: value
@@ -68,8 +125,9 @@ def main():
             if list(have.get(name, [])) != value
         }
         for name, value in differ.items():
+            shown = value[0] if len(value) == 1 else value
             changes.append(
-                f"{device}: property {name} = {value[0]}"
+                f"{device}: property {name} = {shown}"
                 f" (database has {list(have.get(name, []))})"
             )
         if differ and not args.check:

@@ -124,11 +124,11 @@
       # Jive from conda-forge, in the dedicated '{{ tango_ds_jive_env }}' environment.
       exec {{ tango_ds_miniforge_prefix }}/bin/conda run -n {{ tango_ds_jive_env }} jive "$@"
 
-# --- Ch29: registration of the device servers ------------------------------------------
+# --- Ch29: registration of the device servers, and of Sardana's since Ch31 -------------
 # Which server runs which device, and with which properties, lives in the Tango database,
-# not in a file on this host. The role keeps it in step with tango_ds_servers, as
-# roles/tango_db does with its schema fix: compare first (read-only, so it also runs in
-# check mode), then write only what differs.
+# not in a file on this host. The role keeps it in step with tango_ds_servers and
+# tango_ds_sardana_servers, as roles/tango_db does with its schema fix: compare first
+# (read-only, so it also runs in check mode), then write only what differs.
 - name: Install the registration script
   ansible.builtin.copy:
     src: tango-ds-register
@@ -142,7 +142,7 @@
 - name: Compare the device-server registrations with the Tango database
   ansible.builtin.command:
     argv: [/usr/local/sbin/tango-ds-register, --check]
-    stdin: "{{ tango_ds_servers | to_json }}"
+    stdin: "{{ (tango_ds_servers + tango_ds_sardana_servers) | to_json }}"
   environment:
     TANGO_HOST: "{{ tango_ds_tango_host }}"
   register: tango_ds_registration
@@ -171,7 +171,7 @@
 - name: Register what differs (servers, devices, properties)
   ansible.builtin.command:
     argv: [/usr/local/sbin/tango-ds-register]
-    stdin: "{{ tango_ds_servers | to_json }}"
+    stdin: "{{ (tango_ds_servers + tango_ds_sardana_servers) | to_json }}"
   environment:
     TANGO_HOST: "{{ tango_ds_tango_host }}"
   when:
@@ -316,7 +316,8 @@
     label: "tango-{{ item.unit.name }}"
   vars:
     registration_written: "{{ tango_ds_registration_write | default({}) is changed }}"
-    registration_changes: "{{ (tango_ds_registration.stdout | default('{}') | from_json).changes | default([]) }}"
+    # default(.., true): with a changed script, check mode leaves stdout '' (not undefined).
+    registration_changes: "{{ (tango_ds_registration.stdout | default('{}', true) | from_json).changes | default([]) }}"
   when:
     - >-
       item is changed or (registration_written and

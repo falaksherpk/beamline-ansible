@@ -185,3 +185,45 @@ tango_ds_allowed_from: 10.10.10.0/24
 # Restart delay: at most two starts per 10 s, so systemd's default start limit (5 in 10 s)
 # never stops a unit that keeps failing while its peer is missing.
 tango_ds_restart_sec: 5
+
+# --- Ch31: Sardana's servers -------------------------------------------------------------
+# One entry per Sardana server, each with its devices, named as Sardana's own registration
+# (register_sardana() in sardana/tango/core/util.py, 3.7.0) would name them, which are the
+# names the September elements and tests use. files/tango-ds-register writes them like
+# tango_ds_servers; a server whose instance is registered never asks its interactive
+# "does not exist" and "select the Pool" questions, which a unit can't answer.
+# - Pool: PoolPath is where it looks for controller modules. It imports every .py file
+#   there at every start, so a module with top-level code runs then (Ch7's lab72_proof.py).
+# - MacroServer: PoolNames connects it to the Pool. EnvironmentDb "property:<object>" keeps
+#   its environment (ActiveMntGrp, ...) as free properties of that Tango DB object, so its
+#   unit needs no writable path. Given a path it can't write, init_device() replaces this
+#   property with a mkdtemp() path in the database; the role would show that as drift.
+# Ports continue tango_ds_servers' blocks just below them (..66 Pool, ..67 MacroServer).
+# ports, exec and after are for the units and their ufw rules (Ch31).
+tango_ds_sardana_servers:
+  - name: pool
+    server: Pool/linac
+    exec: /usr/local/bin/Pool
+    ports: {corba: 28366, heartbeat: 28466, event: 28566}
+    after: [magnet, faradaycup]
+    devices:
+      - class: Pool
+        device: pool/linac/1
+        alias: Pool_linac_1
+        properties:
+          PoolPath: [/opt/tango-devices/sardana_controllers]
+  - name: macroserver
+    server: MacroServer/linac
+    exec: /usr/local/bin/MacroServer
+    ports: {corba: 28367, heartbeat: 28467, event: 28567}
+    after: [pool]
+    devices:
+      - class: MacroServer
+        device: macroserver/linac/1
+        alias: MS_linac_1
+        properties:
+          PoolNames: [Pool_linac_1]
+          EnvironmentDb: property:SardanaEnv_linac
+      - class: Door
+        device: door/linac/1
+        alias: Door_linac_1
