@@ -271,3 +271,24 @@ tango_ds_sardana_elements:
     - {name: fc_mg, full_name: mntgrp/pool_linac_1/fc_mg, elements: [fc_ctr]}
   environment:
     ActiveMntGrp: fc_mg
+
+# Attribute descriptions and alarm levels kept in the Tango database (Ch32): site values
+# the device code doesn't carry, set through the running devices by
+# files/tango-ds-attribute-config, so they apply at once. Only the keys listed here are
+# compared and written; levels are strings, as Tango stores them. A device reports State
+# ALARM while one of its attributes is past a level, and its operator actions stay
+# allowed there (tango-devices 2c759c8). The vacuum's levels assume the pump runs: with
+# it off the simulator holds 1.0 mbar, which is an alarm.
+tango_ds_attribute_config:
+  - device: linac/vacuum/gauge1
+    attributes:
+      VacuumPressure:
+        description: >-
+          Pressure read from the gauge. Warning above 0.1 mbar, alarm above 0.5 mbar
+          (site levels, tango_ds role).
+        max_warning: "0.1"
+        max_alarm: "0.5"
+      PumpStatus:
+        description: >-
+          Vacuum pump on (true) or off. Memorized: restored at every start of the
+          server.

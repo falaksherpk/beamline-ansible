@@ -1,0 +1,100 @@
+#!/usr/bin/python3
+"""Keep attribute descriptions and alarm levels in step with a JSON list, idempotently.
+
+Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+
+Reads a JSON list on stdin: [{"device": "linac/vacuum/gauge1", "attributes":
+{"VacuumPressure": {"description": "...", "max_warning": "0.1", "max_alarm": "0.5"}}}].
+The keys allowed per attribute are description, min_warning, max_warning, min_alarm
+and max_alarm. Values are strings, as Tango stores them; "" means "not set".
+
+For each listed key it compares the running device's attribute configuration with the
+list. Without --check it writes what differs through the device (set_attribute_config),
+which applies it at once and stores it in the Tango database, then reads it back: a
+value that did not take is an error. Unlisted keys and attributes are left as they are.
+The device server must be running. A device reports State ALARM while an attribute is
+past one of its levels (handbook Part 3, Ch32).
+
+Prints one JSON line, {"changes": [...], "failed": [...]}. With --check it only
+compares. Exit 0 on success, 1 if a write did not take; any Tango error exits non-zero
+with its traceback.
+"""
+
+import argparse
+import json
+import sys
+
+import tango
+
+LEVELS = ("min_warning", "max_warning", "min_alarm", "max_alarm")
+KEYS = ("description", *LEVELS)
+# How Tango shows a value that is not set.
+UNSET = {"description": "No description", "level": "Not specified"}
+
+
+def normal(key, text):
+    """A value as compared: levels as numbers, descriptions as text, "" when not set."""
+    if key == "description":
+        return "" if text == UNSET["description"] else text
+    try:
+        return f"{float(text):g}"
+    except ValueError:
+        return ""
+
+
+def current(cfg, key):
+    """The device's value for key, as Tango shows it."""
+    return cfg.description if key == "description" else getattr(cfg.alarms, key)
+
+
+def assign(cfg, key, value):
+    """Set key in cfg to value ("" clears it)."""
+    if key == "description":
+        cfg.description = value or UNSET["description"]
+    else:
+        setattr(cfg.alarms, key, value or UNSET["level"])
+
+
+def differences(proxy, attr, wanted):
+    """The attribute's configuration, and the wanted keys whose value differs."""
+    cfg = proxy.get_attribute_config_ex(attr)[0]
+    differ = {
+        k: v for k, v in wanted.items() if normal(k, current(cfg, k)) != normal(k, v)
+    }
+    return cfg, differ
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="compare only, write nothing"
+    )
+    args = parser.parse_args()
+
+    entries = json.load(sys.stdin)
+    changes, failed = [], []
+    for entry in entries:
+        device = entry["device"]
+        proxy = tango.DeviceProxy(device)
+        for attr, wanted in entry["attributes"].items():
+            unknown = sorted(set(wanted) - set(KEYS))
+            if unknown:
+                sys.exit(f"refusing: {device}/{attr}: unknown key(s) {unknown}")
+            cfg, differ = differences(proxy, attr, wanted)
+            changes.extend(
+                f"{device}/{attr}: {key} = {value!r} (device has {current(cfg, key)!r})"
+                for key, value in differ.items()
+            )
+            if differ and not args.check:
+                for key, value in differ.items():
+                    assign(cfg, key, value)
+                proxy.set_attribute_config(cfg)
+                _, left = differences(proxy, attr, wanted)
+                failed.extend(f"{device}/{attr}: {key} did not take" for key in left)
+
+    print(json.dumps({"changes": changes, "failed": failed}))
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
