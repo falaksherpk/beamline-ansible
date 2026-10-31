@@ -1,12 +1,14 @@
 #!/usr/bin/python3
-"""Keep attribute descriptions and alarm levels in step with a JSON list, idempotently.
+"""Keep attribute descriptions, alarm levels and formats in step with a JSON list.
 
 Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
 
 Reads a JSON list on stdin: [{"device": "linac/vacuum/gauge1", "attributes":
 {"VacuumPressure": {"description": "...", "max_warning": "0.1", "max_alarm": "0.5"}}}].
-The keys allowed per attribute are description, min_warning, max_warning, min_alarm
-and max_alarm. Values are strings, as Tango stores them; "" means "not set".
+The keys allowed per attribute are description, min_warning, max_warning, min_alarm,
+max_alarm and format. Values are strings, as Tango stores them; "" means "not set",
+except for format, which must be a printf format such as "%.2e" (Tango shows an unset
+format as its default, "%6.2f" for a double, so "not set" could never compare equal).
 
 For each listed key it compares the running device's attribute configuration with the
 list. Without --check it writes what differs through the device (set_attribute_config),
@@ -27,13 +29,16 @@ import sys
 import tango
 
 LEVELS = ("min_warning", "max_warning", "min_alarm", "max_alarm")
-KEYS = ("description", *LEVELS)
+KEYS = ("description", *LEVELS, "format")
 # How Tango shows a value that is not set.
 UNSET = {"description": "No description", "level": "Not specified"}
 
 
 def normal(key, text):
-    """A value as compared: levels as numbers, descriptions as text, "" when not set."""
+    """A value as compared: levels as numbers, descriptions and formats as text, ""
+    when not set."""
+    if key == "format":
+        return text
     if key == "description":
         return "" if text == UNSET["description"] else text
     try:
@@ -44,12 +49,16 @@ def normal(key, text):
 
 def current(cfg, key):
     """The device's value for key, as Tango shows it."""
-    return cfg.description if key == "description" else getattr(cfg.alarms, key)
+    if key in ("description", "format"):
+        return getattr(cfg, key)
+    return getattr(cfg.alarms, key)
 
 
 def assign(cfg, key, value):
     """Set key in cfg to value ("" clears it)."""
-    if key == "description":
+    if key == "format":
+        cfg.format = value
+    elif key == "description":
         cfg.description = value or UNSET["description"]
     else:
         setattr(cfg.alarms, key, value or UNSET["level"])
@@ -80,6 +89,8 @@ def main():
             unknown = sorted(set(wanted) - set(KEYS))
             if unknown:
                 sys.exit(f"refusing: {device}/{attr}: unknown key(s) {unknown}")
+            if "format" in wanted and not wanted["format"].startswith("%"):
+                sys.exit(f"refusing: {device}/{attr}: format must be like '%.2e'")
             cfg, differ = differences(proxy, attr, wanted)
             changes.extend(
                 f"{device}/{attr}: {key} = {value!r} (device has {current(cfg, key)!r})"

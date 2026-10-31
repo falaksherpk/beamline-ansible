@@ -288,6 +288,9 @@ tango_ds_attribute_config:
           (site levels, tango_ds role).
         max_warning: "0.1"
         max_alarm: "0.5"
+        # Scientific notation: a real gauge reads down to 1e-11 mbar, which Tango's
+        # default "%6.2f" shows as 0.00 (Ch32, 31 Oct).
+        format: "%.2e"
       PumpStatus:
         description: >-
           Vacuum pump on (true) or off. Memorized: restored at every start of the
