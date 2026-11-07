@@ -28,10 +28,15 @@ pkg_apt_repo_signing_key: ECEE314121F9A4EA1CB1A2621AC8A9930C437FCF
 pkg_conda_indexer_image: docker.io/condaforge/miniforge3@sha256:f752860f77bd417aa4db35be3d2e906fdb740fb80f40755ed651fff9e8873aad
 pkg_conda_indexer_spec: rattler-index==0.33.1=h91e2699_0
 
-# GitLab Runner (Ch17): one shell-executor runner on this host for beamline-healthcheck's
-# pipeline, registered for protected refs only. Same version as GitLab and the runner on
-# gitlab.beamline. gitlab-runner hard-depends on gitlab-runner-helper-images of the same
-# version (~510 MiB), although the shell executor never uses those images.
+# GitLab Runner (Ch17): one gitlab-runner service on this host, shell executor, with one
+# project runner per publishing project, each locked to its project and registered for
+# protected refs only: beamline-healthcheck (Ch17, #2, tag pkg-native) and tango-devices
+# (Part 4 Ch34, #3, tag pkg-tango). Both run as pkg_runner_user. This role installs the
+# service; the runners are registered by hand from a hidden prompt, and their tokens live
+# only in /etc/gitlab-runner/config.toml (concurrent = 1: one job at a time across both).
+# Same version as GitLab and the runner on gitlab.beamline. gitlab-runner hard-depends on
+# gitlab-runner-helper-images of the same version (~510 MiB), although the shell executor
+# never uses those images.
 pkg_runner_version: "19.4.1-1"
 pkg_runner_user: gitlab-runner
 # The apt repository is trusted with one key only, files/gitlab-runner-apt.asc:
