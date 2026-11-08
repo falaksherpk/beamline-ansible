@@ -34,6 +34,12 @@ What it does
   (`-ORBendPoint`) and fixed ZeroMQ heartbeat and event ports (`TANGO_ZMQ_*_PORT`),
   bound to the host's lab address; the three blocks are opened to `tango_ds_allowed_from`.
   Simulator ports stay on 127.0.0.1.
+- **The Prometheus exporter (Ch36, tag `tango_ds_exporter`):** `tango-exporter@linac`
+  from the package (1.1.0), not part of `tango-lab.target`. Its site data lists the
+  devices (this role's servers, Sardana's servers and elements, HDB++'s two servers), the
+  attributes and the HDB++ EventSubscriber; it serves `/metrics` on the lab address,
+  port `tango_ds_exporter_port`, which ufw opens to the Prometheus host only. Restarted
+  after a new release or new site data.
 - **Sardana's elements (Ch31, tag `tango_ds_sardana_elements`) and attribute
   configuration (Ch32, tag `tango_ds_attribute_config`):** compared, then created or set
   where they differ.

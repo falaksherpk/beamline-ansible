@@ -552,6 +552,65 @@
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_ds_services]
 
+# --- Ch36: the Prometheus exporter ----------------------------------------------------------
+# One more instance of a package template, outside tango-lab.target (defaults). Its site
+# data goes first, as for the other instances; it restarts when that data or the release
+# changes (the target's restart above doesn't reach it), and only the observability host
+# may connect to it.
+- name: Write the exporter's site data
+  ansible.builtin.template:
+    src: tango-exporter.env.j2
+    dest: "{{ tango_ds_env_dir }}/{{ tango_ds_exporter_unit | replace('@', '-') }}.env"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    env:
+      TANGO_HOST: "{{ tango_ds_tango_host }}"
+      TANGO_EXPORTER_LISTEN: "{{ tango_ds_endpoint_host }}:{{ tango_ds_exporter_port }}"
+      TANGO_EXPORTER_DEVICES: "{{ tango_ds_exporter_devices | join(' ') }}"
+      TANGO_EXPORTER_ATTRIBUTES: "{{ tango_ds_exporter_attributes | join(' ') }}"
+      TANGO_EXPORTER_HDBPP: "{{ tango_ds_exporter_hdbpp | join(' ') }}"
+      TANGO_EXPORTER_TIMEOUT_MS: "{{ tango_ds_exporter_timeout_ms }}"
+    tango_ds_exporter_devices: >-
+      {{ tango_ds_servers | map(attribute='device') | list
+         + tango_ds_sardana_servers | map(attribute='devices') | flatten | map(attribute='device') | list
+         + tango_ds_sardana_elements.controllers | map(attribute='elements') | flatten | map(attribute='full_name') | list
+         + tango_ds_sardana_elements.measurement_groups | map(attribute='full_name') | list
+         + tango_ds_exporter_extra_devices }}
+  register: tango_ds_exporter_env
+  tags: [tango_ds_exporter]
+
+- name: Keep the exporter enabled and running
+  ansible.builtin.systemd_service:
+    name: "{{ tango_ds_exporter_unit }}.service"
+    enabled: true
+    state: started
+  register: tango_ds_exporter_started
+  # In check mode before 1.1.0 is installed systemd doesn't know the template yet.
+  ignore_errors: "{{ ansible_check_mode and tango_ds_pkg | default({}) is changed }}"
+  tags: [tango_ds_exporter]
+
+- name: Restart the exporter after a new release or new site data
+  ansible.builtin.systemd_service:
+    name: "{{ tango_ds_exporter_unit }}.service"
+    state: restarted
+  when:
+    - tango_ds_pkg | default({}) is changed or tango_ds_exporter_env is changed
+    - tango_ds_exporter_started is succeeded
+    - tango_ds_exporter_started is not changed
+  ignore_errors: "{{ ansible_check_mode }}"
+  tags: [tango_ds_exporter]
+
+- name: Allow the exporter only from the Prometheus host
+  community.general.ufw:
+    rule: allow
+    port: "{{ tango_ds_exporter_port }}"
+    proto: tcp
+    from_ip: "{{ tango_ds_exporter_scraper_ip }}"
+    comment: "Tango exporter, scraped from obs (Ch36)"
+  tags: [tango_ds_exporter, tango_ds_firewall]
+
 # --- Ch31: Sardana's elements -------------------------------------------------------------
 # Controllers, elements and measurement groups live in the Tango database, the MacroServer
 # environment in SardanaEnv_linac's free properties. The role keeps them in step with

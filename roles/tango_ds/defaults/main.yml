@@ -21,7 +21,7 @@ tango_ds_apt_packages:
 # here at this version, so only this role moves them: a new release is a change of this
 # value, after which the role restarts every instance (the venv changes under them).
 # Rollback is the same change back, with the previous release's .debs (Ch35's procedure).
-tango_ds_package_version: 1.0.1
+tango_ds_package_version: 1.1.0
 tango_ds_packages:
   - beamline-tango-devices
   - beamline-tango-simulators
@@ -204,6 +204,44 @@ tango_ds_endpoint_host: "{{ inventory_hostname }}"
 # cup) goes to stderr regardless.
 tango_ds_log_level: 4
 tango_ds_allowed_from: 10.10.10.0/24
+
+# --- Ch36: the Prometheus exporter ----------------------------------------------------------
+# tango-exporter@<instance>, from beamline-tango-devices since 1.1.0: a Tango client that
+# reads the listed devices at every scrape (python3 -m beamline_tango.exporter documents its
+# settings). Prometheus on the observability host scrapes it, and ufw lets only that host
+# in, as node_exporter (Ch16). Not part of tango-lab.target: it keeps running while the lab
+# is stopped, so the devices show as down instead of the exporter disappearing.
+tango_ds_exporter_unit: tango-exporter@linac
+tango_ds_exporter_port: 9580
+tango_ds_exporter_scraper_ip: "{{ hostvars[groups['observability'][0]]['ansible_host'] }}"
+tango_ds_exporter_timeout_ms: 1500
+# Its devices are this role's servers and Sardana's, the Sardana elements listed below, and
+# these, whose names come from elsewhere: the controllers as Sardana names them
+# (controller/<class>/<name>) and HDB++'s two servers on tango-db (roles/tango_db).
+tango_ds_exporter_extra_devices:
+  - controller/magnetmotorcontroller/magnet_ctrl
+  - controller/faradayzerodcontroller/fc_ctrl
+  - archiving/hdbpp/eventsubscriber01
+  - archiving/hdbpp/confmanager01
+# HDB++ EventSubscribers whose attribute counts and 60 s statistics it exports.
+tango_ds_exporter_hdbpp:
+  - archiving/hdbpp/eventsubscriber01
+# Numeric and boolean scalars, device/attribute; ":counter" for a count the device keeps
+# itself (both reset at the device's Init).
+tango_ds_exporter_attributes:
+  - linac/magnet/q1/current
+  - linac/magnet/q1/setpoint
+  - linac/beam/faradaycup1/current
+  - linac/beam/faradaycup1/zero_check
+  - linac/beam/faradaycup1/poll_count:counter
+  - linac/camera/ceyag1/frame_count:counter
+  - linac/vacuum/gauge1/VacuumPressure
+  - linac/vacuum/gauge1/PumpStatus
+  - linac/safety/interlock1/BeamPermit
+  - linac/safety/interlock1/FaultLatched
+  - linac/safety/interlock1/DoorClosed
+  - linac/safety/interlock1/VacuumOk
+  - linac/safety/interlock1/WaterFlowOk
 
 # --- Ch31: Sardana's servers -------------------------------------------------------------
 # One entry per Sardana server, each with its devices, named as Sardana's own registration
