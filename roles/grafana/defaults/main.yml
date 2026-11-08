@@ -22,5 +22,15 @@ grafana_ui_allowed_from: "10.10.10.1"
 grafana_prometheus_url: "http://127.0.0.1:9090"
 # Alertmanager on the same host, loopback only (role alertmanager).
 grafana_alertmanager_url: "http://127.0.0.1:9093"
+# The HDB++ archive on tango-db (role tango_db, Part 4 Ch36): MySQL over TLS, the server
+# verified against the lab CA; a read-only account whose password, like the CA, is read
+# on the controller (the same file role tango_db uses; never in Git). Few connections:
+# the account allows 5.
+grafana_hdbpp_address: "{{ groups['tango_db'][0] }}:3306"
+grafana_hdbpp_database: hdbpp
+grafana_hdbpp_user: grafana
+grafana_hdbpp_password_file: "{{ grafana_tls_src_dir }}/tango-db-grafana.password"
+grafana_hdbpp_ca_file: "{{ grafana_tls_src_dir }}/ca.crt"
+grafana_hdbpp_max_open_conns: 2
 # Dashboards: files/dashboards/<name>.json, provisioned into the folder Beamline.
-grafana_dashboards: [beamline-fleet]
+grafana_dashboards: [beamline-fleet, beamline-tango]

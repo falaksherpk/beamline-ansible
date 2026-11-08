@@ -134,6 +134,20 @@
   notify: Restart grafana-server
   tags: [grafana]
 
+# Part 4 Ch36. The file holds the archive password and is root:grafana 0640 like the others;
+# its content is never shown (no_log, no diff).
+- name: Provision the HDB++ archive datasource (MySQL on tango-db, read-only, TLS verified)
+  ansible.builtin.template:
+    src: datasource-hdbpp.yaml.j2
+    dest: /etc/grafana/provisioning/datasources/hdbpp.yaml
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  diff: false
+  notify: Restart grafana-server
+  tags: [grafana]
+
 - name: Create the directory for provisioned dashboards (owner and mode as the package's postinst sets them)
   ansible.builtin.file:
     path: /etc/grafana/dashboards

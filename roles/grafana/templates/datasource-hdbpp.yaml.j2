@@ -1,0 +1,30 @@
+# Managed by Ansible (beamline-ansible, role grafana) - do not edit on the host.
+# The HDB++ archive on tango-db (role tango_db; handbook Part 4, Ch36): a read-only account,
+# TLS with the server's certificate verified against the lab CA. The password and the CA
+# come from the controller. Grafana expands $VAR in provisioning files, so the password
+# has no "$" (it is alphanumeric).
+apiVersion: 1
+
+datasources:
+  - name: HDB++ archive
+    uid: hdbpp
+    type: mysql
+    access: proxy
+    url: {{ grafana_hdbpp_address }}
+    user: {{ grafana_hdbpp_user }}
+    editable: false
+    jsonData:
+      database: {{ grafana_hdbpp_database }}
+      tlsAuth: false
+      tlsAuthWithCACert: true
+      tlsSkipVerify: false
+      timezone: "+00:00"
+      timeInterval: 10s
+      maxOpenConns: {{ grafana_hdbpp_max_open_conns }}
+      maxIdleConns: {{ grafana_hdbpp_max_open_conns }}
+      maxIdleConnsAuto: false
+      connMaxLifetime: 14400
+    secureJsonData:
+      password: "{{ lookup('ansible.builtin.file', grafana_hdbpp_password_file) }}"
+      tlsCACert: |
+{{ lookup('ansible.builtin.file', grafana_hdbpp_ca_file) | indent(8, first=true) }}
