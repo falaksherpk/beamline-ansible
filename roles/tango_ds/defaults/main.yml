@@ -21,7 +21,7 @@ tango_ds_apt_packages:
 # here at this version, so only this role moves them: a new release is a change of this
 # value, after which the role restarts every instance (the venv changes under them).
 # Rollback is the same change back, with the previous release's .debs (Ch35's procedure).
-tango_ds_package_version: 1.0.0
+tango_ds_package_version: 1.0.1
 tango_ds_packages:
   - beamline-tango-devices
   - beamline-tango-simulators
