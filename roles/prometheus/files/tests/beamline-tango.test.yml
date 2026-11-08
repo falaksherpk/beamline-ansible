@@ -1,0 +1,199 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Unit tests for rules/beamline-tango.yml (promtool test rules), run on every converge.
+# Each rule is shown to fire for a synthetic bad series, at the time its "for" allows and
+# not before, and to stay silent for a healthy one and for the cases it leaves to another
+# rule.
+rule_files:
+  - ../rules/beamline-tango.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: DeviceDown fires after 2 minutes for the device that can't be read only
+    interval: 1m
+    input_series:
+      - series: 'tango_device_up{job="tango", instance="tango-ds.beamline:9580", device="linac/beam/faradaycup1"}'
+        values: '0x10'
+      - series: 'tango_device_up{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: TangoDeviceDown
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: TangoDeviceDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: linac/beam/faradaycup1
+            exp_annotations:
+              summary: "Tango device linac/beam/faradaycup1 is not answering"
+              description: "The exporter on tango-ds.beamline:9580 has not been able to read the State of linac/beam/faradaycup1 for more than 2 minutes."
+
+  - name: FAULT fires the critical rule after a minute, and not NotOn as well
+    interval: 1m
+    input_series:
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/vacuum/gauge1", state="ON"}'
+        values: '0x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/vacuum/gauge1", state="FAULT"}'
+        values: '1x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1", state="ON"}'
+        values: '1x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1", state="FAULT"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: TangoDeviceFault
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: TangoDeviceFault
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: linac/vacuum/gauge1
+              state: FAULT
+            exp_annotations:
+              summary: "Tango device linac/vacuum/gauge1 is in FAULT"
+              description: "linac/vacuum/gauge1 has reported State FAULT for more than a minute (exporter on tango-ds.beamline:9580)."
+      - eval_time: 10m
+        alertname: TangoDeviceNotOn
+        exp_alerts: []
+
+  - name: NotOn fires after 5 minutes in ALARM, not for an ON device
+    interval: 1m
+    input_series:
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/safety/interlock1", state="ON"}'
+        values: '0x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/safety/interlock1", state="ALARM"}'
+        values: '1x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/safety/interlock1", state="FAULT"}'
+        values: '0x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1", state="ON"}'
+        values: '1x10'
+      - series: 'tango_device_state{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1", state="FAULT"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: TangoDeviceNotOn
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TangoDeviceNotOn
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: linac/safety/interlock1
+              state: "ON"
+            exp_annotations:
+              summary: "Tango device linac/safety/interlock1 is not ON"
+              description: "linac/safety/interlock1 has been in a State other than ON (and not FAULT) for more than 5 minutes (exporter on tango-ds.beamline:9580)."
+      - eval_time: 5m
+        alertname: TangoDeviceFault
+        exp_alerts: []
+
+  - name: ReadErrors fires while attribute reads fail, clears 10 minutes later, ignores State
+    interval: 1m
+    input_series:
+      # One failed read at 3m, another at 4m; none after.
+      - series: 'tango_read_errors_total{job="tango", instance="tango-ds.beamline:9580", device="linac/beam/faradaycup1", attribute="current"}'
+        values: '0 0 0 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2'
+      # A device that can't be read at all counts State errors: TangoDeviceDown's case.
+      - series: 'tango_read_errors_total{job="tango", instance="tango-ds.beamline:9580", device="linac/camera/ceyag1", attribute="State"}'
+        values: '0+1x20'
+      - series: 'tango_read_errors_total{job="tango", instance="tango-ds.beamline:9580", device="linac/magnet/q1", attribute="current"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: TangoAttributeReadErrors
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: TangoAttributeReadErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: linac/beam/faradaycup1
+              attribute: current
+            exp_annotations:
+              summary: "Reads of linac/beam/faradaycup1/current are failing"
+              description: "The exporter on tango-ds.beamline:9580 saw about 2 failed read(s) of linac/beam/faradaycup1/current in the last 10 minutes."
+      - eval_time: 15m
+        alertname: TangoAttributeReadErrors
+        exp_alerts: []
+
+  - name: HdbppAttributesNotOk fires after 5 minutes of nok or pending, not for ok
+    interval: 1m
+    input_series:
+      - series: 'hdbpp_es_attributes{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01", status="ok"}'
+        values: '15x10'
+      - series: 'hdbpp_es_attributes{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01", status="nok"}'
+        values: '1x10'
+      - series: 'hdbpp_es_attributes{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01", status="pending"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HdbppAttributesNotOk
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: HdbppAttributesNotOk
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: archiving/hdbpp/eventsubscriber01
+              status: nok
+            exp_annotations:
+              summary: "HDB++ has 1 nok attribute(s) on archiving/hdbpp/eventsubscriber01"
+              description: "archiving/hdbpp/eventsubscriber01 has reported nok attributes for more than 5 minutes: some attributes are not being archived."
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: archiving/hdbpp/eventsubscriber01
+              status: pending
+            exp_annotations:
+              summary: "HDB++ has 1 pending attribute(s) on archiving/hdbpp/eventsubscriber01"
+              description: "archiving/hdbpp/eventsubscriber01 has reported pending attributes for more than 5 minutes: some attributes are not being archived."
+
+  - name: HdbppStoreFailures fires on a failure in the window, clears 10 minutes later
+    interval: 1m
+    input_series:
+      # Two failures in the 60 s window seen at 3m, none before or after.
+      - series: 'hdbpp_es_window_failures{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01"}'
+        values: '0 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: HdbppStoreFailures
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: HdbppStoreFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: archiving/hdbpp/eventsubscriber01
+            exp_annotations:
+              summary: "HDB++ failed events or stores on archiving/hdbpp/eventsubscriber01"
+              description: "archiving/hdbpp/eventsubscriber01 reported up to 2 failed event(s) or store(s) per 60 s window in the last 10 minutes."
+      - eval_time: 12m
+        alertname: HdbppStoreFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: tango
+              instance: tango-ds.beamline:9580
+              device: archiving/hdbpp/eventsubscriber01
+            exp_annotations:
+              summary: "HDB++ failed events or stores on archiving/hdbpp/eventsubscriber01"
+              description: "archiving/hdbpp/eventsubscriber01 reported up to 2 failed event(s) or store(s) per 60 s window in the last 10 minutes."
+      - eval_time: 14m
+        alertname: HdbppStoreFailures
+        exp_alerts: []

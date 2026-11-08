@@ -1,0 +1,74 @@
+# Managed by Ansible (beamline-ansible, role prometheus) - do not edit on the host.
+# Alerts on the Tango control system, from the exporter on the device-server host (role
+# tango_ds, job tango; handbook Part 4, Ch36). The exporter itself being down is
+# TargetDown's (beamline-base); these cover what it reports. Validated by promtool check
+# rules before they are installed, and exercised by tests/beamline-tango.test.yml.
+groups:
+  - name: beamline-tango
+    rules:
+      # The exporter answered, but this device's State couldn't be read: its server is
+      # stopped, hung or unregistered.
+      - alert: TangoDeviceDown
+        expr: tango_device_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tango device {{ $labels.device }} is not answering"
+          description: "The exporter on {{ $labels.instance }} has not been able to read the State of {{ $labels.device }} for more than 2 minutes."
+
+      - alert: TangoDeviceFault
+        expr: tango_device_state{state="FAULT"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tango device {{ $labels.device }} is in FAULT"
+          description: "{{ $labels.device }} has reported State FAULT for more than a minute (exporter on {{ $labels.instance }})."
+
+      # Any other state but ON (ALARM, MOVING, INIT, ...) for long; FAULT is the rule
+      # above's, so one alert per problem. ALARM on the interlock or the vacuum gauge is
+      # a real condition (a tripped interlock, the pump off), not a fault of the device.
+      - alert: TangoDeviceNotOn
+        expr: >-
+          tango_device_state{state="ON"} == 0
+          unless on(instance, device) (tango_device_state{state="FAULT"} == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tango device {{ $labels.device }} is not ON"
+          description: "{{ $labels.device }} has been in a State other than ON (and not FAULT) for more than 5 minutes (exporter on {{ $labels.instance }})."
+
+      # Reads of listed attributes that failed while the device answered (the Faraday
+      # cup's dropped reads, for one). A device that can't be read at all is
+      # TangoDeviceDown's, so State is left out. Fires on any failure in the last 10
+      # minutes and clears 10 minutes after the last one.
+      - alert: TangoAttributeReadErrors
+        expr: increase(tango_read_errors_total{attribute!="State"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reads of {{ $labels.device }}/{{ $labels.attribute }} are failing"
+          description: "The exporter on {{ $labels.instance }} saw about {{ $value | printf \"%.0f\" }} failed read(s) of {{ $labels.device }}/{{ $labels.attribute }} in the last 10 minutes."
+
+      # The EventSubscriber archives fewer attributes than it was given.
+      - alert: HdbppAttributesNotOk
+        expr: hdbpp_es_attributes{status=~"nok|pending"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HDB++ has {{ $value | printf \"%.0f\" }} {{ $labels.status }} attribute(s) on {{ $labels.device }}"
+          description: "{{ $labels.device }} has reported {{ $labels.status }} attributes for more than 5 minutes: some attributes are not being archived."
+
+      # A failed event or store in the EventSubscriber's 60 s window (what fleet-check's
+      # 85-hdbpp reports). The window is short, so any failure in the last 10 minutes
+      # counts; it clears 10 minutes after the last one.
+      - alert: HdbppStoreFailures
+        expr: max_over_time(hdbpp_es_window_failures[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "HDB++ failed events or stores on {{ $labels.device }}"
+          description: "{{ $labels.device }} reported up to {{ $value | printf \"%.0f\" }} failed event(s) or store(s) per 60 s window in the last 10 minutes."

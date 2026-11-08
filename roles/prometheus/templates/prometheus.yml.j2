@@ -95,3 +95,12 @@ scrape_configs:
 {% for host in groups['kubernetes'] | sort %}
           - "{{ host }}:{{ prometheus_k8s_kubelet_port }}"
 {% endfor %}
+
+  # The Tango exporter on each device-server host (role tango_ds; Part 4 Ch36), at the
+  # global interval. It reads the devices at every scrape, in about 0.1 s.
+  - job_name: tango
+    static_configs:
+      - targets:
+{% for host in groups['tango_ds'] | sort %}
+          - "{{ host }}:{{ prometheus_tango_exporter_port }}"
+{% endfor %}
