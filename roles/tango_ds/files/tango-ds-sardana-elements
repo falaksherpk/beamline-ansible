@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/opt/beamline-tango/bin/python3
 """Create the Sardana lab's controllers, elements and measurement groups, idempotently.
 
 Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.

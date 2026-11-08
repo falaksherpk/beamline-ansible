@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/opt/beamline-tango/bin/python3
 """Register Tango device servers, their devices, aliases and properties, idempotently.
 
 Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.

@@ -1,0 +1,13 @@
+# Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.
+# What {{ entry.unit }}.service starts after on this site (handbook Part 4, Ch35). The
+# package's template carries what holds everywhere; this drop-in, what this site's
+# simulators and devices need.
+[Unit]
+{% for peer in entry.after | default([]) %}
+Wants={{ peer }}.service
+After={{ peer }}.service
+{% endfor %}
+{% for peer in entry.binds_to | default([]) %}
+BindsTo={{ peer }}.service
+After={{ peer }}.service
+{% endfor %}

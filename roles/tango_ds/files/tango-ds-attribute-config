@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/opt/beamline-tango/bin/python3
 """Keep attribute descriptions, alarm levels and formats in step with a JSON list.
 
 Managed by Ansible (beamline-ansible, role tango_ds) - do not edit on the host.

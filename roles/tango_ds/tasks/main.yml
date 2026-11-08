@@ -1,17 +1,15 @@
 # SPDX-License-Identifier: MIT-0
 ---
-# tasks file for tango_ds (handbook Part 3, Ch23)
+# tasks file for tango_ds (handbook Part 3, Ch23; Part 4, Ch35)
 #
 # This host runs everything except the Tango Database itself (roles/tango_db): the Tango
-# client side, PyTango and the device servers, their protocol simulators, Jive.
+# client side, the device servers and their protocol simulators from the lab's apt
+# repository (Ch35), Sardana's Pool and MacroServer, Jive.
 #
-# Check mode works before the first install: the tasks that need packages this role
-# installs (pip) may fail only while those packages would still be
-# installed (failed_when below). A real run fails on any error.
+# Check mode works before the first install: the tasks that need the packages this role
+# installs may fail only while those packages would still be installed (failed_when
+# below). A real run fails on any error.
 
-# No recommends: python3-pip recommends build-essential and python3-dev, which would bring a
-# C/C++ toolchain back onto this host (11 compiler/dev packages, Ch23 gate 1). Every pip
-# package here installs from a binary wheel, so none of them is needed.
 - name: Install the Tango client side, the simulators' tools and the debugging tools
   ansible.builtin.apt:
     name: "{{ tango_ds_apt_packages }}"
@@ -19,20 +17,6 @@
     install_recommends: false
     update_cache: true
     cache_valid_time: 3600
-  register: tango_ds_apt
-
-- name: Install PyTango and the Python packages the devices and tests use (pinned)
-  ansible.builtin.pip:
-    name: "{{ tango_ds_pip_packages }}"
-  # PIP_BREAK_SYSTEM_PACKAGES rather than extra_args: with any extra_args the pip
-  # module reports "changed" in check mode without looking at what is installed,
-  # so the fleet drift check could never pass for this task (Ch23).
-  environment:
-    PIP_BREAK_SYSTEM_PACKAGES: "1"
-  register: tango_ds_pip
-  failed_when:
-    - tango_ds_pip is failed
-    - not (ansible_check_mode and tango_ds_apt is changed)
 
 - name: Set TANGO_HOST in /etc/environment so device servers and clients find the database
   ansible.builtin.lineinfile:
@@ -47,16 +31,52 @@
     state: absent
     purge: true
 
-- name: Remove the Redis Python client
-  ansible.builtin.pip:
-    name: "{{ tango_ds_pip_packages_absent }}"
-    state: absent
-  environment:
-    PIP_BREAK_SYSTEM_PACKAGES: "1"
-  register: tango_ds_pip_absent
-  failed_when:
-    - tango_ds_pip_absent is failed
-    - not (ansible_check_mode and tango_ds_apt is changed)
+# --- Ch35: the device servers' packages -------------------------------------------------
+# The package lists are refreshed only when the pinned version isn't the installed one, so
+# a converged run needs no network; a new pin finds a release published since the last
+# refresh. The packages are held, so an 'apt upgrade' by hand leaves them alone: the
+# venv changes under running servers only through this role, which then restarts them.
+- name: Read which versions of the device-server packages are installed
+  ansible.builtin.command:
+    argv: "{{ tango_ds_query + tango_ds_packages }}"
+  vars:
+    tango_ds_query:
+      - dpkg-query
+      - --show
+      - --showformat=${Package} ${Version}\n
+  register: tango_ds_pkg_query
+  check_mode: false
+  changed_when: false
+  # Exit 1 while a package is unknown to dpkg; the comparison below decides.
+  failed_when: false
+
+# check_mode: false, because in check mode the apt module never refreshes the lists, so a
+# host whose lists predate the pinned release could not even be checked (Ch35 S2). A
+# refresh changes no installed package, and a converged host skips it.
+- name: Refresh the package lists when the pinned version isn't the installed one
+  ansible.builtin.apt:
+    update_cache: true
+  vars:
+    tango_ds_pkg_wanted: "{{ tango_ds_packages | map('regex_replace', '$', ' ' ~ tango_ds_package_version) | sort }}"
+  when: tango_ds_pkg_query.stdout_lines | sort != tango_ds_pkg_wanted
+  check_mode: false
+  changed_when: false
+
+- name: Install the device servers and simulators at the pinned version
+  ansible.builtin.apt:
+    name: "{{ tango_ds_packages | map('regex_replace', '$', '=' ~ tango_ds_package_version) | list }}"
+    state: present
+    install_recommends: false
+    allow_change_held_packages: true
+  register: tango_ds_pkg
+
+- name: Hold the device servers and simulators at that version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ tango_ds_packages }}"
+  # In check mode before the first install dpkg doesn't know them yet.
+  ignore_errors: "{{ ansible_check_mode and tango_ds_pkg | default({}) is changed }}"
 
 # --- Jive (Tango database browser) -----------------------------------------------------
 # Jive is a Java/Swing application that the Debian/Ubuntu Tango packages don't ship. It
@@ -128,7 +148,22 @@
 # Which server runs which device, and with which properties, lives in the Tango database,
 # not in a file on this host. The role keeps it in step with tango_ds_servers and
 # tango_ds_sardana_servers, as roles/tango_db does with its schema fix: compare first
-# (read-only, so it also runs in check mode), then write only what differs.
+# (read-only, so it also runs in check mode), then write only what differs. The scripts
+# run on the package's runtime (Ch35); in check mode before the first install, on
+# whatever the host had.
+- name: Check that each server's unit instance is its Tango instance name
+  ansible.builtin.assert:
+    that:
+      - entry.unit.split('@') | length == 2
+      - entry.unit.split('@')[1] == entry.server.split('/')[1]
+    fail_msg: "{{ entry.unit }} doesn't run Tango instance {{ entry.server }}"
+    quiet: true
+  loop: "{{ tango_ds_servers + tango_ds_sardana_servers }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  tags: [tango_ds_register, tango_ds_services]
+
 - name: Install the registration script
   ansible.builtin.copy:
     src: tango-ds-register
@@ -153,11 +188,11 @@
     - ansible_check_mode
     - tango_ds_registration.rc == 0
     - (tango_ds_registration.stdout | from_json).changes | length > 0
-  # In check mode before the first install the script doesn't exist yet. Real runs fail
-  # hard on any error.
+  # In check mode before the first install the script or its interpreter may not exist
+  # yet. Real runs fail hard on any error.
   failed_when:
     - tango_ds_registration.rc | default(1) != 0
-    - not (ansible_check_mode and tango_ds_register_script is changed)
+    - not (ansible_check_mode and (tango_ds_register_script is changed or tango_ds_pkg | default({}) is changed))
   tags: [tango_ds_register]
 
 - name: Show the registration differences
@@ -180,85 +215,6 @@
   changed_when: true
   register: tango_ds_registration_write
   tags: [tango_ds_register]
-
-# --- Ch29: the device servers and their simulators as services --------------------------
-# One unit per process (5 servers, 7 simulator processes), all from one template, grouped
-# under tango-lab.target. Code updates in /opt/tango-devices stay a manual pull (Ch23);
-# after one, restart the affected units by hand.
-- name: Install the readiness helper the units call from ExecStartPost
-  ansible.builtin.copy:
-    src: tango-ds-wait
-    dest: /usr/local/sbin/tango-ds-wait
-    owner: root
-    group: root
-    mode: "0755"
-  tags: [tango_ds_services]
-
-- name: Install the MacroServer's readiness check (Ch31)
-  ansible.builtin.copy:
-    src: tango-ds-sardana-ready
-    dest: /usr/local/sbin/tango-ds-sardana-ready
-    owner: root
-    group: root
-    mode: "0755"
-  tags: [tango_ds_services]
-
-- name: Install the target that groups the Tango lab units
-  ansible.builtin.template:
-    src: tango-lab.target.j2
-    dest: /etc/systemd/system/tango-lab.target
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Reload systemd
-  tags: [tango_ds_services]
-
-- name: Install the simulator units
-  ansible.builtin.template:
-    src: tango-ds-unit.service.j2
-    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
-    owner: root
-    group: root
-    mode: "0644"
-  loop: "{{ tango_ds_simulators }}"
-  loop_control:
-    loop_var: unit
-    label: "tango-{{ unit.name }}"
-  register: tango_ds_simulator_units
-  notify: Reload systemd
-  tags: [tango_ds_services]
-
-- name: Install the device-server units
-  ansible.builtin.template:
-    src: tango-ds-unit.service.j2
-    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
-    owner: root
-    group: root
-    mode: "0644"
-  loop: "{{ tango_ds_servers }}"
-  loop_control:
-    loop_var: unit
-    label: "tango-{{ unit.name }}"
-  register: tango_ds_server_units
-  notify: Reload systemd
-  tags: [tango_ds_services]
-
-# Sardana's Pool and MacroServer (Ch31), from the same template, with Wants= and After= only:
-# each copes with the other missing or restarting (Ch31 probe P4), so neither binds to it.
-- name: Install the Sardana server units
-  ansible.builtin.template:
-    src: tango-ds-unit.service.j2
-    dest: "/etc/systemd/system/tango-{{ unit.name }}.service"
-    owner: root
-    group: root
-    mode: "0644"
-  loop: "{{ tango_ds_sardana_servers }}"
-  loop_control:
-    loop_var: unit
-    label: "tango-{{ unit.name }}"
-  register: tango_ds_sardana_units
-  notify: Reload systemd
-  tags: [tango_ds_services]
 
 # The firewall opens each kind of port as one range; a gap or a duplicate would open a
 # port no server owns, or leave one closed.
@@ -319,87 +275,273 @@
     loop_var: kind
   tags: [tango_ds_firewall]
 
-- name: Make systemd read the new and changed units now
+# --- Ch35: the package's template units, with this site's data --------------------------
+# One instance per process (7 simulators, 5 servers, Pool and MacroServer), each
+# WantedBy= and PartOf= the package's tango-lab.target. The role writes every instance's
+# site data and ordering before it enables any, since an instance whose environment file
+# is missing fails only at start (Ch33).
+- name: Create the directory for the instances' site data
+  ansible.builtin.file:
+    path: "{{ tango_ds_env_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [tango_ds_services]
+
+- name: Write the simulators' site data
+  ansible.builtin.template:
+    src: beamline-tango.env.j2
+    dest: "{{ tango_ds_env_dir }}/{{ entry.unit | replace('@', '-') }}.env"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    env: "{{ entry.env }}"
+  loop: "{{ tango_ds_simulators | selectattr('env', 'defined') | list }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  register: tango_ds_simulator_env
+  tags: [tango_ds_services]
+
+- name: Write the device servers' site data
+  ansible.builtin.template:
+    src: beamline-tango.env.j2
+    dest: "{{ tango_ds_env_dir }}/{{ entry.unit | replace('@', '-') }}.env"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    env:
+      TANGO_HOST: "{{ tango_ds_tango_host }}"
+      TANGO_ENDPOINT_HOST: "{{ tango_ds_endpoint_host }}"
+      TANGO_CORBA_PORT: "{{ entry.ports.corba }}"
+      TANGO_ZMQ_HEARTBEAT_PORT: "{{ entry.ports.heartbeat }}"
+      TANGO_ZMQ_EVENT_PORT: "{{ entry.ports.event }}"
+      TANGO_LOG_LEVEL: "{{ tango_ds_log_level }}"
+  loop: "{{ tango_ds_servers }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  register: tango_ds_server_env
+  tags: [tango_ds_services]
+
+- name: Write the Sardana servers' site data
+  ansible.builtin.template:
+    src: beamline-tango.env.j2
+    dest: "{{ tango_ds_env_dir }}/{{ entry.unit | replace('@', '-') }}.env"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    common:
+      TANGO_HOST: "{{ tango_ds_tango_host }}"
+      TANGO_ENDPOINT_HOST: "{{ tango_ds_endpoint_host }}"
+      TANGO_CORBA_PORT: "{{ entry.ports.corba }}"
+      TANGO_ZMQ_HEARTBEAT_PORT: "{{ entry.ports.heartbeat }}"
+      TANGO_ZMQ_EVENT_PORT: "{{ entry.ports.event }}"
+      SARDANA_LOG_LEVEL: "{{ tango_ds_sardana_log_level }}"
+    # The MacroServer's readiness check: its own device and its Pool's.
+    macroserver:
+      SARDANA_MACROSERVER_DEVICE: "{{ entry.devices[0].device }}"
+      SARDANA_POOL_DEVICE: "{{ entry.pool_device | default('') }}"
+    env: "{{ common | combine(macroserver if entry.pool_device is defined else {}) }}"
+  loop: "{{ tango_ds_sardana_servers }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  register: tango_ds_sardana_env
+  tags: [tango_ds_services]
+
+- name: Create the drop-in directories of the instances that start after others here
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ entry.unit }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ tango_ds_servers + tango_ds_sardana_servers }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  when: entry.after is defined or entry.binds_to is defined
+  tags: [tango_ds_services]
+
+- name: Write what each of them starts after on this site
+  ansible.builtin.template:
+    src: beamline-tango-site.conf.j2
+    dest: "/etc/systemd/system/{{ entry.unit }}.service.d/50-beamline-site.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ tango_ds_servers + tango_ds_sardana_servers }}"
+  loop_control:
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  when: entry.after is defined or entry.binds_to is defined
+  register: tango_ds_dropins
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
+# --- Ch35: the switch from Part 3's units, once ------------------------------------------
+# Part 3 rendered one unit per process into /etc/systemd/system, and its own
+# tango-lab.target there, which would hide the package's (/etc wins over /usr/lib). Old
+# and new units bind the same ports, so the old ones stop first: the lab is down from here
+# until the target starts the instances below (about a minute; HDB++ records the gap).
+# Everything here keys on the old target file, which goes last, so a run that stops
+# halfway resumes the switch.
+- name: Look for Part 3's role-rendered target
+  ansible.builtin.stat:
+    path: /etc/systemd/system/tango-lab.target
+  register: tango_ds_legacy_target
+  tags: [tango_ds_services]
+
+- name: Stop Part 3's lab (every unit is PartOf= its target)
+  ansible.builtin.systemd_service:
+    name: tango-lab.target
+    state: stopped
+  when: tango_ds_legacy_target.stat.exists
+  tags: [tango_ds_services]
+
+- name: Stop and disable Part 3's units
+  ansible.builtin.systemd_service:
+    name: "tango-{{ item }}.service"
+    state: stopped
+    enabled: false
+  loop: "{{ tango_ds_legacy_units }}"
+  when: tango_ds_legacy_target.stat.exists
+  tags: [tango_ds_services]
+
+- name: Disable Part 3's target
+  ansible.builtin.systemd_service:
+    name: tango-lab.target
+    enabled: false
+  when: tango_ds_legacy_target.stat.exists
+  tags: [tango_ds_services]
+
+- name: Remove Part 3's unit files
+  ansible.builtin.file:
+    path: "/etc/systemd/system/tango-{{ item }}.service"
+    state: absent
+  loop: "{{ tango_ds_legacy_units }}"
+  when: tango_ds_legacy_target.stat.exists
+  tags: [tango_ds_services]
+
+- name: Remove Part 3's target, its wants directory first
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/tango-lab.target.wants
+    - /etc/systemd/system/tango-lab.target
+  when: tango_ds_legacy_target.stat.exists
+  notify: Reload systemd
+  tags: [tango_ds_services]
+
+- name: Make systemd read the package's units, the drop-ins and the removals now
   ansible.builtin.meta: flush_handlers
   tags: [tango_ds_services]
 
-- name: Enable every unit, so the target starts it at boot
+- name: Enable every instance, so the target starts it at boot
   ansible.builtin.systemd_service:
-    name: "tango-{{ unit }}.service"
+    name: "{{ unit }}.service"
     enabled: true
-  loop: "{{ (tango_ds_simulators + tango_ds_servers + tango_ds_sardana_servers) | map(attribute='name') | list }}"
+  loop: "{{ (tango_ds_simulators + tango_ds_servers + tango_ds_sardana_servers) | map(attribute='unit') | list }}"
   loop_control:
     loop_var: unit
-  # In check mode the units above are only simulated, so systemd doesn't know them yet.
-  ignore_errors: "{{ ansible_check_mode }}"
+  # In check mode before the first install systemd doesn't know the templates yet.
+  ignore_errors: "{{ ansible_check_mode and tango_ds_pkg | default({}) is changed }}"
   tags: [tango_ds_services]
 
-- name: Keep the target enabled and started (starts every unit, in dependency order)
+- name: Keep the target enabled and started (starts every instance, in dependency order)
   ansible.builtin.systemd_service:
     name: tango-lab.target
     enabled: true
     state: started
   register: tango_ds_target
+  ignore_errors: "{{ ansible_check_mode and tango_ds_pkg | default({}) is changed }}"
+  tags: [tango_ds_services]
+
+# Running instances pick up a new release, changed site data, a changed drop-in or
+# changed registration properties only at a restart. Only when the target task succeeded
+# without starting anything: if it has just started the instances they are fresh, and if
+# it failed (check mode before the first install) there is nothing to restart.
+# A new release changes the runtime under all of them: the target restarts them all, in
+# dependency order (PartOf=). Otherwise only the instances whose own data changed,
+# simulators first (a magnet link's restart also restarts what is bound to it), the Pool
+# before the MacroServer (list order; the MacroServer is PartOf= it).
+- name: Restart every instance after a new release
+  ansible.builtin.systemd_service:
+    name: tango-lab.target
+    state: restarted
+  when:
+    - tango_ds_pkg | default({}) is changed
+    - tango_ds_target is succeeded
+    - tango_ds_target is not changed
+  register: tango_ds_restart_all
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_ds_services]
 
-# Units already running pick up a changed unit file, or changed registration properties,
-# only at a restart. Simulators first: a socat restart also restarts the units bound to it.
-# Only when the target task succeeded without starting anything: if it has just started
-# the units they are fresh, and if it failed (check mode before the first install) there
-# is nothing to restart.
-- name: Restart the simulator units whose unit file changed
+- name: Restart the simulators whose site data changed
   ansible.builtin.systemd_service:
-    name: "tango-{{ item.unit.name }}.service"
+    name: "{{ entry.unit }}.service"
     state: restarted
-  loop: "{{ tango_ds_simulator_units.results }}"
+  loop: "{{ tango_ds_simulators }}"
   loop_control:
-    label: "tango-{{ item.unit.name }}"
+    loop_var: entry
+    label: "{{ entry.unit }}"
+  vars:
+    changed_units: "{{ tango_ds_simulator_env.results | selectattr('changed') | map(attribute='entry.unit') | list }}"
   when:
-    - item is changed
+    - entry.unit in changed_units
+    - tango_ds_restart_all is skipped
     - tango_ds_target is succeeded
     - tango_ds_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_ds_services]
 
-- name: Restart the device servers whose unit file or registration changed
+- name: Restart the device servers whose site data, drop-in or registration changed
   ansible.builtin.systemd_service:
-    name: "tango-{{ item.unit.name }}.service"
+    name: "{{ entry.unit }}.service"
     state: restarted
-  loop: "{{ tango_ds_server_units.results }}"
+  loop: "{{ tango_ds_servers }}"
   loop_control:
-    label: "tango-{{ item.unit.name }}"
+    loop_var: entry
+    label: "{{ entry.unit }}"
   vars:
+    changed_units: "{{ (tango_ds_server_env.results + tango_ds_dropins.results) | selectattr('changed') | map(attribute='entry.unit') | list }}"
     registration_written: "{{ tango_ds_registration_write | default({}) is changed }}"
     # default(.., true): with a changed script, check mode leaves stdout '' (not undefined).
     registration_changes: "{{ (tango_ds_registration.stdout | default('{}', true) | from_json).changes | default([]) }}"
   when:
     - >-
-      item is changed or (registration_written and
-      registration_changes | select('match', item.unit.device ~ ':') | list | length > 0)
+      entry.unit in changed_units or (registration_written and
+      registration_changes | select('match', entry.device ~ ':') | list | length > 0)
+    - tango_ds_restart_all is skipped
     - tango_ds_target is succeeded
     - tango_ds_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
   tags: [tango_ds_services]
 
-# The Pool before the MacroServer (list order). A unit installed by this run is inactive
-# until here: the target is already active, so starting it again starts nothing new, and
-# restarted starts an inactive unit.
-- name: Restart the Sardana servers whose unit file or registration changed
+- name: Restart the Sardana servers whose site data, drop-in or registration changed
   ansible.builtin.systemd_service:
-    name: "tango-{{ item.unit.name }}.service"
+    name: "{{ entry.unit }}.service"
     state: restarted
-  loop: "{{ tango_ds_sardana_units.results }}"
+  loop: "{{ tango_ds_sardana_servers }}"
   loop_control:
-    label: "tango-{{ item.unit.name }}"
+    loop_var: entry
+    label: "{{ entry.unit }}"
   vars:
+    changed_units: "{{ (tango_ds_sardana_env.results + tango_ds_dropins.results) | selectattr('changed') | map(attribute='entry.unit') | list }}"
     registration_written: "{{ tango_ds_registration_write | default({}) is changed }}"
     registration_changes: "{{ (tango_ds_registration.stdout | default('{}', true) | from_json).changes | default([]) }}"
     changed_devices: "{{ registration_changes | map('regex_replace', ':.*$', '') | list }}"
   when:
     - >-
-      item is changed or (registration_written and
-      changed_devices | intersect(item.unit.devices | map(attribute='device') | list) | length > 0)
+      entry.unit in changed_units or (registration_written and
+      changed_devices | intersect(entry.devices | map(attribute='device') | list) | length > 0)
+    - tango_ds_restart_all is skipped
     - tango_ds_target is succeeded
     - tango_ds_target is not changed
   ignore_errors: "{{ ansible_check_mode }}"
@@ -433,11 +575,12 @@
     - ansible_check_mode
     - tango_ds_elements.rc == 0
     - (tango_ds_elements.stdout | from_json).changes | length > 0
-  # In check mode before the first install the script, or the servers, may not exist yet.
+  # In check mode before the first install the script, its interpreter or the servers may
+  # not exist yet.
   failed_when:
     - tango_ds_elements.rc | default(1) != 0
     - not (ansible_check_mode and (tango_ds_elements_script is changed or
-      tango_ds_sardana_units | default({}) is changed))
+      tango_ds_pkg | default({}) is changed))
   tags: [tango_ds_sardana_elements]
 
 - name: Show the Sardana element differences
@@ -487,10 +630,11 @@
     - ansible_check_mode
     - tango_ds_attr_config.rc == 0
     - (tango_ds_attr_config.stdout | from_json).changes | length > 0
-  # In check mode before the first install the script doesn't exist yet.
+  # In check mode before the first install the script or its interpreter doesn't exist yet.
   failed_when:
     - tango_ds_attr_config.rc | default(1) != 0
-    - not (ansible_check_mode and tango_ds_attr_config_script is changed)
+    - not (ansible_check_mode and (tango_ds_attr_config_script is changed or
+      tango_ds_pkg | default({}) is changed))
   tags: [tango_ds_attribute_config]
 
 - name: Show the attribute configuration differences
@@ -512,3 +656,49 @@
     - (tango_ds_attr_config.stdout | from_json).changes | length > 0
   changed_when: true
   tags: [tango_ds_attribute_config]
+
+# --- Ch35: Part 3's runtime, removed once nothing uses it ----------------------------------
+# By here every server runs from the package. What Part 3 ran from goes: PyTango, Sardana
+# and the dev tools in the system Python's pip tree (their scripts in /usr/local/bin go
+# with them), then pip itself, the checkout, and the readiness helpers the package now
+# carries. Each step finds nothing to do on a host built after Ch35.
+- name: Look for Part 3's pip distributions
+  ansible.builtin.find:
+    paths: "{{ tango_ds_legacy_pip_dir }}"
+    patterns: "{{ tango_ds_legacy_pip_packages | map('regex_replace', '$', '-*.dist-info') | list }}"
+    file_type: directory
+  register: tango_ds_legacy_pip
+
+- name: Remove Part 3's PyTango, Sardana and dev tools from the system Python
+  ansible.builtin.pip:
+    name: "{{ tango_ds_legacy_pip_packages }}"
+    state: absent
+  environment:
+    PIP_BREAK_SYSTEM_PACKAGES: "1"
+  when: tango_ds_legacy_pip.matched > 0
+
+- name: Check that none of them is left
+  ansible.builtin.find:
+    paths: "{{ tango_ds_legacy_pip_dir }}"
+    patterns: "{{ tango_ds_legacy_pip_packages | map('regex_replace', '$', '-*.dist-info') | list }}"
+    file_type: directory
+  register: tango_ds_legacy_pip_left
+  failed_when:
+    - tango_ds_legacy_pip_left.matched > 0
+    - not ansible_check_mode
+
+- name: Remove pip, which nothing on this host uses any more
+  ansible.builtin.apt:
+    name: "{{ tango_ds_apt_packages_absent_after_pip }}"
+    state: absent
+
+- name: Remove Part 3's checkout of tango-devices
+  ansible.builtin.file:
+    path: "{{ tango_ds_legacy_code_dir }}"
+    state: absent
+
+- name: Remove Part 3's readiness helpers (the package's are in /usr/libexec/beamline-tango)
+  ansible.builtin.file:
+    path: "/usr/local/sbin/{{ item }}"
+    state: absent
+  loop: "{{ tango_ds_legacy_sbin }}"

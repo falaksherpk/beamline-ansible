@@ -1,42 +1,94 @@
 ---
-# defaults file for tango_ds (handbook Part 3, Ch23)
+# defaults file for tango_ds (handbook Part 3, Ch23; Part 4, Ch35)
 
 # apt: the Tango client side (no tango-db here: that is roles/tango_db), the simulators'
 # serial link (socat), and the debugging tools of Sept 2026 (gdb, python3-dbg, moreutils).
 # No C++ toolchain and no podman any more (Ch23), and no Redis: the last device that used it
-# dropped it in Ch27 (HDB++ is the archive from Ch30).
+# dropped it in Ch27 (HDB++ is the archive from Ch30). No pip either since Ch35: the device
+# servers and their Python runtime come as Debian packages (below).
 tango_ds_apt_packages:
   - tango-common
   - libtango-tools
-  - python3-pip
   - socat
   - gdb
   - python3-dbg
   - moreutils
 
-# pip, system-wide, the same pins as tango-devices' ci/Dockerfile (the versions Ch2-7 were
-# tested with). Change a version here and in ci/Dockerfile together, in one commit.
-# numpy comes with pytango. sardana (Ch31) brings its own dependencies unpinned, as in
-# ci/Dockerfile: taurus 5.4.1, lxml, Pint, flexcache, flexparser, platformdirs (2026-10-25).
-tango_ds_pip_packages:
-  - pytango==10.3.1
-  - pymodbus==3.15.0
-  - pyserial==3.5
-  - pytest==9.1.1
-  - ruff==0.16.5
-  - py-spy==0.4.2
-  - sardana==3.7.0
+# --- Ch35: the device servers from the lab's apt repository -----------------------------
+# beamline-tango-devices carries the servers, the Sardana controllers and their runtime, a
+# hash-locked venv in tango_ds_runtime (PyTango, pymodbus, Sardana); -simulators the seven
+# fakes. Both are released together by tango-devices' tag pipeline (Part 4, Ch34) and held
+# here at this version, so only this role moves them: a new release is a change of this
+# value, after which the role restarts every instance (the venv changes under them).
+# Rollback is the same change back, with the previous release's .debs (Ch35's procedure).
+tango_ds_package_version: 1.0.0
+tango_ds_packages:
+  - beamline-tango-devices
+  - beamline-tango-simulators
+# The package's runtime. The role's own scripts (files/), which import PyTango, name its
+# interpreter in their first line: change both together.
+tango_ds_runtime: /opt/beamline-tango
+# Site data for the package's template units: /etc/beamline-tango/%p-%i.env, written by
+# this role before an instance is enabled (systemd-analyze verify doesn't notice a
+# missing one, Ch33; the instance would fail only at start).
+tango_ds_env_dir: /etc/beamline-tango
 
-# Removed from hosts that still have them (Ch27). Purged, so the service, its configuration
-# and /var/lib/redis go too. The libraries redis-server pulled in (libatomic1, libjemalloc2,
-# liblzf1) are left in place as unused automatic packages: purging them by name could remove
-# a package added here later that needs them, and apt autoremove would act on whatever else
-# happens to be unused on the host.
+# Removed from hosts that still have them. Purged, so the service, its configuration and
+# /var/lib/redis go too (Ch27). python3-pip went with the system pip tree (Ch35). The
+# libraries these had pulled in are left in place as unused automatic packages: purging
+# them by name could remove a package added here later that needs them, and apt
+# autoremove would act on whatever else happens to be unused on the host.
 tango_ds_apt_packages_absent:
   - redis-server
   - redis-tools
-tango_ds_pip_packages_absent:
-  - redis
+tango_ds_apt_packages_absent_after_pip:
+  - python3-pip
+
+# --- Ch35: what the package replaced, removed once -------------------------------------
+# Part 3's layout (Ch23-32): the device code in a checkout, PyTango and Sardana in the
+# system Python's pip tree, one role-rendered unit per process. The role removes each of
+# these where it finds it and finds nothing on a host built after Ch35.
+# The pip distributions in /usr/local/lib/python3.12/dist-packages on 2026-11-08 (Ch35 R1c):
+# the runtime, its dependencies and the dev tools (dev tools stay out of the runtime, D1).
+tango_ds_legacy_pip_packages:
+  - pytango
+  - numpy
+  - psutil
+  - pymodbus
+  - sardana
+  - taurus
+  - lxml
+  - pint
+  - flexcache
+  - flexparser
+  - platformdirs
+  - docstring_parser
+  - pytest
+  - iniconfig
+  - pluggy
+  - ruff
+  - py_spy
+tango_ds_legacy_pip_dir: /usr/local/lib/python3.12/dist-packages
+tango_ds_legacy_code_dir: /opt/tango-devices
+tango_ds_legacy_units:
+  - magnet-socat
+  - magnet-psu
+  - faradaycup-picoammeter
+  - faradaycup-adapter
+  - camera-sim
+  - vacuum-sim
+  - interlock-sim
+  - magnet
+  - faradaycup
+  - camera
+  - vacuum
+  - interlock
+  - pool
+  - macroserver
+# Part 3's readiness helpers, in the package since Ch33 (/usr/libexec/beamline-tango/).
+tango_ds_legacy_sbin:
+  - tango-ds-wait
+  - tango-ds-sardana-ready
 
 tango_ds_tango_host: tango-db.beamline:10000
 
@@ -58,123 +110,93 @@ tango_ds_jive_version: "7.46"
 #   properties are written wherever the Tango database differs. Unlisted properties and
 #   memorized attribute values (the magnet's setpoint, the vacuum gauge's PumpStatus) are
 #   left alone. Property values are strings, as the database stores them.
-# - a systemd unit, tango-<name>.service (templates/tango-ds-unit.service.j2): the script
-#   under tango_ds_code_dir, three fixed ports, and the simulator units it starts after.
+# - an instance of the package's template unit (Ch35), unit: <template>@<instance>, the
+#   instance being the Tango instance name (asserted in the tasks). The role writes its
+#   site data (/etc/beamline-tango/<template>-<instance>.env: the database, the endpoint
+#   host, three fixed ports, the log level) and a drop-in with what it starts after here.
 # Ports: CORBA (-ORBendPoint), ZeroMQ heartbeat and ZeroMQ event (TANGO_ZMQ_*_PORT); each
 # kind is one contiguous block, opened in ufw as a range (asserted in the tasks). 28366 and
 # 28367 stay free for Sardana's Pool and MacroServer (Ch31). All bind to the server's lab
 # address only (they follow -ORBendPoint's host), below the kernel's ephemeral range.
-# after: simulator units started first (Wants= + After=). The Faraday cup, vacuum gauge
-# and interlock heal by themselves when theirs returns (Ch26-28), the camera since Ch29;
-# the magnet after a lost PSU process is untested. binds_to: the magnet only - a socat
-# restart makes new ptys, and the device reopens its port only at start (BindsTo=, so it
-# restarts with socat).
+# after: units started first (Wants= + After=). The Faraday cup, vacuum gauge and
+# interlock heal by themselves when their simulator returns (Ch26-28), the camera since
+# Ch29; the magnet after a lost PSU process is untested. binds_to: the magnet only - a
+# socat restart makes new ptys, and the device reopens its port only at start (BindsTo=,
+# so it restarts with its link). With real instruments these lists name what the device
+# needs on that site, or nothing.
 tango_ds_servers:
-  - name: magnet
+  - unit: tango-magnet@q1
     server: magnet_power_supply/q1
     class: MagnetPowerSupply
     device: linac/magnet/q1
-    script: linac/magnet/magnet_power_supply.py
     ports: {corba: 28368, heartbeat: 28468, event: 28568}
-    after: [magnet-psu]
-    binds_to: magnet-socat
+    after: [tango-sim-magnet-psu@q1]
+    binds_to: [tango-sim-magnet-link@q1]
     properties:
-      port: /run/tango-magnet/dev
+      # The link's device end; the package's link unit makes /run/tango-magnet-<instance>/.
+      port: /run/tango-magnet-q1/dev
       baudrate: "9600"
       ramp_rate: "5.0"
-  - name: faradaycup
+  - unit: tango-faradaycup@faradaycup1
     server: faraday_cup/faradaycup1
     class: FaradayCup
     device: linac/beam/faradaycup1
-    script: linac/beam/faraday_cup.py
     ports: {corba: 28369, heartbeat: 28469, event: 28569}
-    after: [faradaycup-adapter]
+    after: [tango-sim-prologix@faradaycup1]
     properties:
       PrologixHost: 127.0.0.1
       PrologixPort: "1234"
       GpibAddress: "22"
       PollIntervalMs: "500"
-  - name: camera
+  - unit: tango-camera@ceyag1
     server: ceyag_camera/ceyag1
     class: CeYagCamera
     device: linac/camera/ceyag1
-    script: linac/camera/ceyag_camera.py
     ports: {corba: 28370, heartbeat: 28470, event: 28570}
-    after: [camera-sim]
+    after: [tango-sim-camera@ceyag1]
     properties:
       host: 127.0.0.1
       port: "9999"
       frame_interval_ms: "200"
-  - name: vacuum
+  - unit: tango-vacuum@gauge1
     server: vacuum_gauge/gauge1
     class: VacuumGauge
     device: linac/vacuum/gauge1
-    script: linac/vacuum/vacuum_gauge.py
     ports: {corba: 28371, heartbeat: 28471, event: 28571}
-    after: [vacuum-sim]
+    after: [tango-sim-vacuum@gauge1]
     properties:
       Host: 127.0.0.1
       Port: "5020"
       ModbusDeviceId: "1"
-  - name: interlock
+  - unit: tango-interlock@interlock1
     server: interlock_monitor/interlock1
     class: InterlockMonitor
     device: linac/safety/interlock1
-    script: linac/safety/interlock_monitor.py
     ports: {corba: 28372, heartbeat: 28472, event: 28572}
-    after: [interlock-sim]
+    after: [tango-sim-plc@interlock1]
     properties:
       Host: 127.0.0.1
       Port: "5040"
 
-# The simulators: one unit each, tango-<name>.service, on 127.0.0.1 or ptys only (never
-# opened in ufw). ready: tango-ds-wait's arguments, run as ExecStartPost= so a unit counts
-# as started only once it can serve ($MAINPID is expanded by systemd). The adapter dials
-# the picoammeter once at startup, so it starts after it; later restarts of either need
-# nothing restarted (Ch26).
+# The simulators: instances of the -simulators package's templates, on 127.0.0.1 or ptys
+# only (never opened in ufw). env: their site data, where the template reads any (the
+# magnet's link and PSU take only the instance). The ports are the ones the devices'
+# properties above name. The package's units already carry the relations that hold on
+# any site: the PSU bound to its link, the Prologix adapter after its picoammeter (Ch26).
 tango_ds_simulators:
-  - name: magnet-socat
-    description: RS-232 link for the magnet, a socat pty pair
-    command: >-
-      /usr/bin/socat -d pty,raw,echo=0,link=/run/tango-magnet/psu
-      pty,raw,echo=0,link=/run/tango-magnet/dev
-    runtime_dir: tango-magnet
-    ready: path /run/tango-magnet/psu /run/tango-magnet/dev
-  - name: magnet-psu
-    description: Fake magnet power supply, on the instrument end of the link
-    script: linac/magnet/fake_magnet_psu.py
-    args: /run/tango-magnet/psu
-    binds_to: magnet-socat
-    ready: fd $MAINPID /run/tango-magnet/psu
-  - name: faradaycup-picoammeter
-    description: Fake Keithley 6485 picoammeter
-    script: linac/beam/fake_picoammeter.py
-    args: "5025"
-    ready: listen 5025
-  - name: faradaycup-adapter
-    description: Fake Prologix GPIB-ETHERNET adapter in front of the picoammeter
-    script: linac/beam/fake_prologix_adapter.py
-    args: 1234 127.0.0.1 5025
-    after: [faradaycup-picoammeter]
-    ready: listen 1234
-  - name: camera-sim
-    description: Fake Ce:YAG camera, a frame every 0.5 s
-    script: linac/camera/fake_ceyag_camera.py
-    args: 9999 0.5
-    ready: listen 9999
-  - name: vacuum-sim
-    description: Fake Modbus TCP vacuum gauge
-    script: linac/vacuum/fake_modbus_vacuum.py
-    args: "5020"
-    ready: listen 5020
-  - name: interlock-sim
-    description: Fake Modbus TCP interlock PLC
-    script: linac/safety/fake_modbus_plc.py
-    args: "5040"
-    ready: listen 5040
+  - unit: tango-sim-magnet-link@q1
+  - unit: tango-sim-magnet-psu@q1
+  - unit: tango-sim-picoammeter@faradaycup1
+    env: {SIM_PORT: 5025}
+  - unit: tango-sim-prologix@faradaycup1
+    env: {SIM_PORT: 1234, SIM_INSTRUMENT_HOST: 127.0.0.1, SIM_INSTRUMENT_PORT: 5025}
+  - unit: tango-sim-camera@ceyag1
+    env: {SIM_PORT: 9999, SIM_FRAME_INTERVAL_S: "0.5"}
+  - unit: tango-sim-vacuum@gauge1
+    env: {SIM_PORT: 5020}
+  - unit: tango-sim-plc@interlock1
+    env: {SIM_PORT: 5040}
 
-tango_ds_service_user: tango
-tango_ds_code_dir: /opt/tango-devices
 # -ORBendPoint's host: the servers bind to this name's lab address and publish it.
 tango_ds_endpoint_host: "{{ inventory_hostname }}"
 # Tango's console log level for the servers (4 = info): the devices' own error_stream
@@ -182,9 +204,6 @@ tango_ds_endpoint_host: "{{ inventory_hostname }}"
 # cup) goes to stderr regardless.
 tango_ds_log_level: 4
 tango_ds_allowed_from: 10.10.10.0/24
-# Restart delay: at most two starts per 10 s, so systemd's default start limit (5 in 10 s)
-# never stops a unit that keeps failing while its peer is missing.
-tango_ds_restart_sec: 5
 
 # --- Ch31: Sardana's servers -------------------------------------------------------------
 # One entry per Sardana server, each with its devices, named as Sardana's own registration
@@ -192,40 +211,33 @@ tango_ds_restart_sec: 5
 # names the September elements and tests use. files/tango-ds-register writes them like
 # tango_ds_servers; a server whose instance is registered never asks its interactive
 # "does not exist" and "select the Pool" questions, which a unit can't answer.
-# - Pool: PoolPath is where it looks for controller modules. It imports every .py file
-#   there at every start, so a module with top-level code runs then (Ch7's lab72_proof.py).
+# - Pool: PoolPath is where it looks for controller modules: the package's
+#   sardana_controllers (Ch35). It imports every .py file there at every start, so a module
+#   with top-level code runs then (Ch7's lab72_proof.py, now in tango-devices' tools/).
 # - MacroServer: PoolNames connects it to the Pool. EnvironmentDb "property:<object>" keeps
 #   its environment (ActiveMntGrp, ...) as free properties of that Tango DB object, so its
 #   unit needs no writable path. Given a path it can't write, init_device() replaces this
 #   property with a mkdtemp() path in the database; the role would show that as drift.
 # Ports continue tango_ds_servers' blocks just below them (..66 Pool, ..67 MacroServer).
-# ports, exec and after are for the units and their ufw rules (Ch31). A macro started in
-# the first seconds after a Pool restart can hang for good, its motion waiting on events
-# from the old Pool, and won't abort (Ch31 LAB 31.7). So the MacroServer is PartOf= the
-# Pool (a Pool stop or restart takes it along, a Pool start doesn't), and the Pool counts
-# as started only once it listens (ready), so the MacroServer after it finds it serving.
-# The MacroServer itself counts as started once it knows every element the Pool has
-# (ready_pool, files/tango-ds-sardana-ready): its Door answers about a second earlier.
+# The package's units carry the rest of Ch31: the Pool counts as started once it listens,
+# the MacroServer is PartOf= its Pool (a macro started in the first seconds after a Pool
+# restart can hang for good, Ch31 LAB 31.7) and counts as started once it knows every
+# element the Pool has (pool_device, the readiness check's second argument).
 tango_ds_sardana_servers:
-  - name: pool
+  - unit: tango-pool@linac
     server: Pool/linac
-    exec: /usr/local/bin/Pool
     ports: {corba: 28366, heartbeat: 28466, event: 28566}
-    after: [magnet, faradaycup]
-    ready: listen 28366
+    after: [tango-magnet@q1, tango-faradaycup@faradaycup1]
     devices:
       - class: Pool
         device: pool/linac/1
         alias: Pool_linac_1
         properties:
-          PoolPath: [/opt/tango-devices/sardana_controllers]
-  - name: macroserver
+          PoolPath: ["{{ tango_ds_runtime }}/lib/python3.12/site-packages/beamline_tango/sardana_controllers"]
+  - unit: tango-macroserver@linac
     server: MacroServer/linac
-    exec: /usr/local/bin/MacroServer
     ports: {corba: 28367, heartbeat: 28467, event: 28567}
-    after: [pool]
-    part_of: [pool]
-    ready_pool: pool/linac/1
+    pool_device: pool/linac/1
     devices:
       - class: MacroServer
         device: macroserver/linac/1
