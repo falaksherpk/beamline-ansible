@@ -69,6 +69,11 @@
     install_recommends: false
     allow_change_held_packages: true
   register: tango_ds_pkg
+  # A new release replaces the package's unit files, and systemd keeps running the loaded
+  # ones until a daemon-reload, which the package's postinst doesn't do. The handler is
+  # flushed before the instances restart below (Ch35 S13c: without it they came back from
+  # 1.0.0's units).
+  notify: Reload systemd
 
 - name: Hold the device servers and simulators at that version
   ansible.builtin.dpkg_selections:
