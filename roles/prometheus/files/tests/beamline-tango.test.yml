@@ -162,38 +162,33 @@ tests:
               summary: "HDB++ has 1 pending attribute(s) on archiving/hdbpp/eventsubscriber01"
               description: "archiving/hdbpp/eventsubscriber01 has reported pending attributes for more than 5 minutes: some attributes are not being archived."
 
-  - name: HdbppStoreFailures fires on a failure in the window, clears 10 minutes later
+  - name: HdbppStoreFailures fires for the failing attribute only, clears 10 minutes later
     interval: 1m
     input_series:
       # Two failures in the 60 s window seen at 3m, none before or after.
-      - series: 'hdbpp_es_window_failures{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01"}'
+      - series: 'hdbpp_es_attribute_window_failures{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01", attribute="linac/beam/faradaycup1/current"}'
         values: '0 0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0'
+      - series: 'hdbpp_es_attribute_window_failures{job="tango", instance="tango-ds.beamline:9580", device="archiving/hdbpp/eventsubscriber01", attribute="linac/magnet/q1/current"}'
+        values: '0x20'
     alert_rule_test:
       - eval_time: 2m
         alertname: HdbppStoreFailures
         exp_alerts: []
       - eval_time: 3m
         alertname: HdbppStoreFailures
-        exp_alerts:
+        exp_alerts: &cup_failing
           - exp_labels:
               severity: warning
               job: tango
               instance: tango-ds.beamline:9580
               device: archiving/hdbpp/eventsubscriber01
+              attribute: linac/beam/faradaycup1/current
             exp_annotations:
-              summary: "HDB++ failed events or stores on archiving/hdbpp/eventsubscriber01"
-              description: "archiving/hdbpp/eventsubscriber01 reported up to 2 failed event(s) or store(s) per 60 s window in the last 10 minutes."
+              summary: "HDB++ failed events or stores of linac/beam/faradaycup1/current"
+              description: "archiving/hdbpp/eventsubscriber01 reported up to 2 failed event(s) or store(s) of linac/beam/faradaycup1/current per 60 s window in the last 10 minutes."
       - eval_time: 12m
         alertname: HdbppStoreFailures
-        exp_alerts:
-          - exp_labels:
-              severity: warning
-              job: tango
-              instance: tango-ds.beamline:9580
-              device: archiving/hdbpp/eventsubscriber01
-            exp_annotations:
-              summary: "HDB++ failed events or stores on archiving/hdbpp/eventsubscriber01"
-              description: "archiving/hdbpp/eventsubscriber01 reported up to 2 failed event(s) or store(s) per 60 s window in the last 10 minutes."
+        exp_alerts: *cup_failing
       - eval_time: 14m
         alertname: HdbppStoreFailures
         exp_alerts: []

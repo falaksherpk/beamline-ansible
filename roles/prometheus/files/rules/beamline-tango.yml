@@ -62,13 +62,14 @@ groups:
           summary: "HDB++ has {{ $value | printf \"%.0f\" }} {{ $labels.status }} attribute(s) on {{ $labels.device }}"
           description: "{{ $labels.device }} has reported {{ $labels.status }} attributes for more than 5 minutes: some attributes are not being archived."
 
-      # A failed event or store in the EventSubscriber's 60 s window (what fleet-check's
-      # 85-hdbpp reports). The window is short, so any failure in the last 10 minutes
-      # counts; it clears 10 minutes after the last one.
+      # A failed event or store of one archived attribute in the EventSubscriber's 60 s
+      # window (what fleet-check's 85-hdbpp reports, by attribute as it names them). Per
+      # attribute, so a known failure can be silenced alone. The window is short, so any
+      # failure in the last 10 minutes counts; it clears 10 minutes after the last one.
       - alert: HdbppStoreFailures
-        expr: max_over_time(hdbpp_es_window_failures[10m]) > 0
+        expr: max_over_time(hdbpp_es_attribute_window_failures[10m]) > 0
         labels:
           severity: warning
         annotations:
-          summary: "HDB++ failed events or stores on {{ $labels.device }}"
-          description: "{{ $labels.device }} reported up to {{ $value | printf \"%.0f\" }} failed event(s) or store(s) per 60 s window in the last 10 minutes."
+          summary: "HDB++ failed events or stores of {{ $labels.attribute }}"
+          description: "{{ $labels.device }} reported up to {{ $value | printf \"%.0f\" }} failed event(s) or store(s) of {{ $labels.attribute }} per 60 s window in the last 10 minutes."
