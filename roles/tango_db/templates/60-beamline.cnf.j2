@@ -1,0 +1,9 @@
+# Managed by Ansible (beamline-ansible, role tango_db) - do not edit on the host.
+# Handbook Part 4, Ch36: the HDB++ archive readable from Grafana on obs. MariaDB listens on
+# loopback and the lab address (10.11 takes a list), with TLS for clients that ask for it;
+# the one network account requires it. No ssl_ca: no client certificates are used.
+[mariadbd]
+bind_address = {{ tango_db_bind_addresses | join(',') }}
+ssl_cert = {{ tango_db_tls_dir }}/{{ inventory_hostname }}.crt
+ssl_key = {{ tango_db_tls_dir }}/{{ inventory_hostname }}.key
+tls_version = TLSv1.2,TLSv1.3

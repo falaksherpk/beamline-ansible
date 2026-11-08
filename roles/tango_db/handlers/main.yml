@@ -1,2 +1,8 @@
 ---
 # handlers file for roles/tango_db
+
+# MariaDB reads its configuration and TLS files only at start (Ch36).
+- name: Restart MariaDB
+  ansible.builtin.systemd_service:
+    name: mariadb
+    state: restarted

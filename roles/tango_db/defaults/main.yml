@@ -28,6 +28,22 @@ tango_db_schema: tango
 tango_db_port: 10000
 tango_db_allowed_from: 10.10.10.0/24
 
+# --- Ch36: the archive readable from Grafana on obs ------------------------------------------
+# MariaDB also listens on the lab address, with TLS (a lab-CA certificate for this host,
+# from the controller's ~/lab-ca, never from Git); one read-only account for Grafana, from
+# the observability host only, over TLS only; ufw opens 3306 to that host only. Every other
+# account stays on the socket (HDB++'s connects as host=localhost, which the client takes
+# as the socket). The password is read from a file on the controller (openssl rand, 0600,
+# outside Git), which role grafana reads too.
+tango_db_tls_src_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/lab-ca"
+tango_db_tls_dir: /etc/mysql/tls
+tango_db_bind_addresses: ["127.0.0.1", "{{ ansible_host }}"]
+tango_db_grafana_user: grafana
+tango_db_grafana_host: "{{ hostvars[groups['observability'][0]]['ansible_host'] }}"
+tango_db_grafana_password_file: "{{ tango_db_tls_src_dir }}/tango-db-grafana.password"
+# A dashboard can't take the archive's connections or run a query for minutes.
+tango_db_grafana_limits: {MAX_USER_CONNECTIONS: 5, MAX_STATEMENT_TIME: 30}
+
 # HDB++ archive database (handbook Part 3, Ch30). The schema file comes from our
 # libhdb++mysql7 package (beamline-hdbpp); of its MariaDB/MySQL InnoDB files only
 # create_hdb++_mariadb_innodb.sql loads on MariaDB 10.11 (the MySQL JSON variant stops
