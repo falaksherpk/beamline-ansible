@@ -59,8 +59,10 @@ Operating it
 A new release: set `tango_ds_package_version` to it and run the play; the role installs
 it and restarts every instance. Rolling back is the same change back, with the previous
 release's `.deb` files from its kept pipeline artifacts installed first (the repository
-keeps one version; handbook Ch35). Memorized values behave as in the device chapters:
-the vacuum gauge's memorized `PumpStatus` starts the pump at every start of its server.
+keeps one version; handbook Ch35). Since 1.2.0 (handbook Ch38, D12) the vacuum gauge
+never starts the pump by itself: its memorized `PumpStatus` is the last command. Every
+release and every cold boot restarts its simulator with the pump off, so the gauge
+reports `ALARM` until an operator runs `PumpOn` (D15).
 
 License
 -------
