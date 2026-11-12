@@ -62,7 +62,9 @@ release's `.deb` files from its kept pipeline artifacts installed first (the rep
 keeps one version; handbook Ch35). Since 1.2.0 (handbook Ch38, D12) the vacuum gauge
 never starts the pump by itself: its memorized `PumpStatus` is the last command. Every
 release and every cold boot restarts its simulator with the pump off, so the gauge
-reports `ALARM` until an operator runs `PumpOn` (D15).
+reports `ALARM` until an operator runs `PumpOn` (D15). Since 1.2.1 (handbook Ch41) the
+gauge's `State` is `ALARM` whenever `VacuumPressure` is at or past one of its levels, also
+while HDB++ polls it; before, `State` could read `ON` there (Ch39, Case 6).
 
 License
 -------
