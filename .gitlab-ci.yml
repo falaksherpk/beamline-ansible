@@ -1,0 +1,61 @@
+---
+# beamline-ansible's pipeline (handbook Ch40): static checks only. No job connects to a host,
+# holds a key or reads a secret. The proof on the fleet stays the converge and fleet-check's
+# drift module. Gate before GitHub: this pipeline green, then the converge proof (guideline).
+stages:
+  - lint
+
+default:
+  # Built by hand on gitlab.beamline from ci/ of the named commit (Ch40), pushed to this
+  # project's registry, used by tag and digest (Part 4 Ch34's THEORY 34.2).
+  image: gitlab.beamline:5050/beamline/beamline-ansible/ansible-ci:3354ea9@sha256:bcec2999038c17d0d8db3f6c67acd6b9db6530d018fae12901c210b4ba385743
+  tags:
+    - docker
+  interruptible: true
+
+variables:
+  # Ansible ignores ./ansible.cfg in a world-writable directory, which a build directory can
+  # be: name it explicitly so every job reads the repository's configuration.
+  ANSIBLE_CONFIG: $CI_PROJECT_DIR/ansible.cfg
+  ANSIBLE_NOCOLOR: "1"
+
+syntax:
+  stage: lint
+  script:
+    # Every top-level playbook (site.yml, gpu-node-upgrade.yml, netplan-dedup.yml).
+    - for p in *.yml; do echo "== $p"; ansible-playbook --syntax-check "$p" || exit 1; done
+
+yamllint:
+  stage: lint
+  script:
+    - yamllint --version
+    - yamllint --strict .
+
+ansible-lint:
+  stage: lint
+  script:
+    - ansible-lint --version
+    - ansible-lint
+
+python:
+  stage: lint
+  script:
+    - ruff --version
+    - ci/check-scripts.sh python
+
+shell:
+  stage: lint
+  script:
+    - shellcheck --version
+    - ci/check-scripts.sh shell
+
+promtool:
+  stage: lint
+  script:
+    # The image's promtool must be the version the prometheus role installs on obs.
+    - want=$(python3 -c 'import yaml; print(yaml.safe_load(open("roles/prometheus/defaults/main.yml"))["prometheus_version"])')
+    - promtool --version | head -1
+    - promtool --version | grep -q "version $want " || { echo "promtool is not $want, the version on obs"; exit 1; }
+    - cd roles/prometheus/files
+    - promtool check rules rules/*.yml
+    - for t in tests/*.test.yml; do promtool test rules "$t" || exit 1; done
