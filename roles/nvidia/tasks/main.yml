@@ -54,7 +54,7 @@
       - nvidia_smi.stdout is search(', ' ~ nvidia_driver_branch ~ '\.')
     fail_msg: "nvidia-smi: '{{ nvidia_smi.stdout | default('') }}{{ nvidia_smi.stderr | default('') }}'"
     quiet: true
-  ignore_errors: "{{ ansible_check_mode and nvidia_install is changed }}"
+  ignore_errors: "{{ ansible_check_mode and nvidia_install is changed }}"  # noqa: ignore-errors
   tags: [nvidia_driver]
 
 # Step B (tag nvidia_persistence): persistence mode on, so the GPU stays initialised
@@ -93,7 +93,7 @@
   ignore_errors: "{{ ansible_check_mode and ((nvidia_install | default({})) is changed or (nvidia_persistence_dropin | default({})) is changed) }}"
   tags: [nvidia_persistence]
 
-- name: Check that persistence mode is on
+- name: Check that persistence mode is on  # noqa: ignore-errors
   ansible.builtin.assert:
     that:
       - nvidia_persistence_mode.stdout | trim == 'Enabled'

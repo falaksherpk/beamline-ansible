@@ -5,4 +5,4 @@
   gather_facts: false
   serial: 1
   roles:
-    - netplan-dedup
+    - netplan_dedup

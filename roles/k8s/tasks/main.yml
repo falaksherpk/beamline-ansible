@@ -67,7 +67,9 @@
   register: k8s_repo
   tags: [k8s_packages]
 
-- name: Refresh the apt cache when the repository was added or changed
+# noqa no-handler: the install below needs the refreshed cache in this same run; a handler
+# would run only at the end of the play, after the install had already failed.
+- name: Refresh the apt cache when the repository was added or changed  # noqa: no-handler
   ansible.builtin.apt:
     update_cache: true
   when: k8s_repo is changed

@@ -164,6 +164,7 @@
 
 - name: Run the alert rules' unit tests (a failing test fails the play)
   ansible.builtin.command:
+    # yamllint disable-line rule:line-length
     argv: "{{ ['/usr/local/bin/promtool', 'test', 'rules'] + (prometheus_rule_files | map('regex_replace', '^(.*)$', prometheus_config_dir ~ '/tests/\\1.test.yml') | list) }}"
   changed_when: false
   # Read-only, so it also runs in check mode, against the installed files. On a first

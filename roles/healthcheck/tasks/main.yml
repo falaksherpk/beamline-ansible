@@ -48,6 +48,7 @@
 
 - name: Remove a statoverride on the textfile directory that differs from ours
   ansible.builtin.command: dpkg-statoverride --remove {{ healthcheck_textfile_dir }}
+  changed_when: true  # runs only when the override differs from ours
   when:
     - healthcheck_statoverride.rc == 0
     - healthcheck_statoverride.stdout != healthcheck_statoverride_wanted
@@ -56,6 +57,7 @@
 - name: Let the textfile group create files there (root:group 1775, a statoverride, so package upgrades keep it)
   ansible.builtin.command: >-
     dpkg-statoverride --update --add root {{ healthcheck_textfile_group }} 1775 {{ healthcheck_textfile_dir }}
+  changed_when: true  # runs only when the override isn't ours yet
   when: healthcheck_statoverride.stdout != healthcheck_statoverride_wanted
   tags: [healthcheck]
 

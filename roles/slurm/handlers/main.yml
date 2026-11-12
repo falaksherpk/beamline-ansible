@@ -37,7 +37,7 @@
 # Handlers run in the order listed: slurmdbd, slurmctld, then slurmd.
 - name: Restart slurmdbd
   ansible.builtin.command:
-    cmd: systemctl try-restart slurmdbd.service
+    cmd: systemctl try-restart slurmdbd.service  # noqa: command-instead-of-module
   register: slurm_tryrestart_dbd
   changed_when: slurm_tryrestart_dbd.rc == 0
   failed_when: slurm_tryrestart_dbd.rc not in [0, 5]
@@ -45,7 +45,7 @@
 
 - name: Restart slurmctld
   ansible.builtin.command:
-    cmd: systemctl try-restart slurmctld.service
+    cmd: systemctl try-restart slurmctld.service  # noqa: command-instead-of-module
   register: slurm_tryrestart_ctld
   changed_when: slurm_tryrestart_ctld.rc == 0
   failed_when: slurm_tryrestart_ctld.rc not in [0, 5]
@@ -53,7 +53,7 @@
 
 - name: Restart slurmd
   ansible.builtin.command:
-    cmd: systemctl try-restart slurmd.service
+    cmd: systemctl try-restart slurmd.service  # noqa: command-instead-of-module
   register: slurm_tryrestart_slurmd
   changed_when: slurm_tryrestart_slurmd.rc == 0
   failed_when: slurm_tryrestart_slurmd.rc not in [0, 5]

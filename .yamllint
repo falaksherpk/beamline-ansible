@@ -1,0 +1,21 @@
+---
+# yamllint for beamline-ansible (handbook Ch40), also read by ansible-lint's yaml rule.
+# roles/*/files/ holds data copied verbatim to the hosts (PromQL rules and tests, scripts):
+# formatting it would change what is deployed, so only the cosmetic rules skip it.
+extends: default
+rules:
+  line-length:
+    max: 160
+    ignore: |
+      roles/*/files/
+  document-start:
+    ignore: |
+      roles/*/files/
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
