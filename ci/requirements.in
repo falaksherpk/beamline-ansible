@@ -1,0 +1,19 @@
+# Top-level pins for beamline-ansible's CI image (handbook Ch40); ci/requirements.txt is the
+# hash-locked closure compiled from this file. ansible 9.2.0 / ansible-core 2.16.3 are what
+# admin.beamline runs (Ubuntu 24.04's apt). ansible-lint 25.1.3 is the newest release that
+# still supports ansible-core 2.16.3 (the resolver picks it when core is pinned).
+ansible==9.2.0
+ansible-core==2.16.3
+ansible-lint==25.1.3
+yamllint==1.38.0
+ruff==0.17.4
+# ansible-core's runtime libraries at admin's versions (Ch40 R2, Ubuntu 24.04 apt): templates
+# render in CI with the Jinja2 that renders them on the fleet. Ubuntu's 3.1.2-1ubuntu1.3 also
+# carries security backports that PyPI's 3.1.2 lacks; CI only lints this repository's own files.
+jinja2==3.1.2
+markupsafe==2.1.5
+# PyYAML: admin has 6.0.1, but ansible-lint 25.1.3 needs >= 6.0.2, the nearest allowed.
+pyyaml==6.0.2
+cryptography==41.0.7
+resolvelib==1.0.1
+packaging==24.0

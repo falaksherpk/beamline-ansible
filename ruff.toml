@@ -1,0 +1,4 @@
+# ruff for the Python scripts beamline-ansible installs (handbook Ch40). They run on Python 3.12
+# on the hosts (/usr/bin/python3 on tango-db, the package's runtime on tango-ds). They have no
+# .py extension, so ci/check-scripts.sh finds them by shebang and passes them by name.
+target-version = "py312"
