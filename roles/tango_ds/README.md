@@ -65,6 +65,9 @@ release and every cold boot restarts its simulator with the pump off, so the gau
 reports `ALARM` until an operator runs `PumpOn` (D15). Since 1.2.1 (handbook Ch41) the
 gauge's `State` is `ALARM` whenever `VacuumPressure` is at or past one of its levels, also
 while HDB++ polls it; before, `State` could read `ON` there (Ch39, Case 6).
+Since 1.2.2 (handbook Ch42) the gauge and the interlock have `PollAge`, and the Faraday
+cup `poll_age`: the seconds since the poll loop's last good read, readable in every
+state. `State` alone can't show a poll loop that stopped (Ch39, Case 2).
 
 License
 -------
