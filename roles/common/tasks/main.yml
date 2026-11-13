@@ -79,3 +79,16 @@
     mode: '0644'
   notify: Update apt cache
   tags: [common_beamline_repo]
+
+- name: Make a kernel oops panic, and a panic reboot (F3, Part 4 Ch39 Case 3)
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/60-beamline-panic.conf
+    sysctl_set: true
+    reload: true
+    state: present
+  loop: "{{ common_panic_sysctl | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+  tags: [common_panic]

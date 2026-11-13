@@ -5,3 +5,11 @@
 # apt update (and every Ansible apt task with update_cache) now also contacts pkg.
 common_beamline_repo_url: https://pkg.beamline/apt
 common_beamline_repo_suite: noble
+
+# A kernel oops leaves a guest hung instead of failed (Part 4 Ch39 Case 3, F3: gitlab sat
+# hung for over an hour with panic_on_oops=0). With these, an oops becomes a panic and the
+# panic a reboot 10 s later, which the boot, fleet-check and the archive all show
+# (Part 4 Ch42). Written to their own file, set live too.
+common_panic_sysctl:
+  kernel.panic_on_oops: "1"
+  kernel.panic: "10"
