@@ -122,6 +122,10 @@ tango_db_endpoint_host: "{{ inventory_hostname }}"
 tango_db_hdbpp_log_level: 4
 # At most two starts per 10 s, under systemd's default start limit (5 in 10 s).
 tango_db_hdbpp_restart_sec: 5
+# tango-db.service's drop-in (Part 4 Ch42, F2): how long ExecStartPost= waits for
+# Databaseds to listen, and the unit's start timeout, which must be above it.
+tango_db_ready_wait_seconds: 20
+tango_db_ready_timeout_sec: 30
 
 # --- Ch30: what is archived ---------------------------------------------------------------
 # files/tango-db-archive keeps the EventSubscriber's attributes in step with this list:

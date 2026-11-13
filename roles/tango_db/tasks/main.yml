@@ -369,6 +369,30 @@
     mode: "0755"
   tags: [tango_db_hdbpp_services]
 
+# F2 (Part 4 Ch39 Case 4; fixed in Ch42): Ubuntu's tango-db.service is Type=simple, so
+# hdbpp-es, ordered after it, started before Databaseds served, and restarted once on
+# every boot. The drop-in makes the unit started only once Databaseds listens. It acts at
+# the next start; the running Databaseds is not restarted for it (every device depends on
+# it), so a cold boot is the proof: NRestarts=0 on hdbpp-es.
+- name: Create tango-db.service's drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tango-db.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [tango_db_hdbpp_services]
+
+- name: Make tango-db.service started only once Databaseds listens (F2)
+  ansible.builtin.template:
+    src: tango-db-ready.conf.j2
+    dest: /etc/systemd/system/tango-db.service.d/50-beamline-ready.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: tango_db_ready_dropin
+  tags: [tango_db_hdbpp_services]
+
 - name: Install the target that groups the HDB++ units
   ansible.builtin.template:
     src: hdbpp.target.j2
@@ -423,10 +447,12 @@
     loop_var: kind
   tags: [tango_db_hdbpp_firewall]
 
-- name: Make systemd read the new and changed HDB++ units now
+- name: Make systemd read the new and changed HDB++ units and tango-db's drop-in now
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: tango_db_hdbpp_target_file is changed or tango_db_hdbpp_units is changed
+  when: >-
+    tango_db_hdbpp_target_file is changed or tango_db_hdbpp_units is changed
+    or tango_db_ready_dropin is changed
   tags: [tango_db_hdbpp_services]
 
 - name: Enable both HDB++ units, so the target starts them at boot

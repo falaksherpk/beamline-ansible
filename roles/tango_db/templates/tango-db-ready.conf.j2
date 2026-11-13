@@ -1,0 +1,12 @@
+# Managed by Ansible (beamline-ansible, role tango_db) - do not edit on the host.
+# A drop-in for Ubuntu's own tango-db.service (handbook Part 4, Ch42; F2, Ch39 Case 4).
+# The unit is Type=simple, so systemd called it started as soon as Databaseds forked, and
+# hdbpp-es (After=tango-db.service) connected before Databaseds served: one failed start
+# and a restart on every boot. With this, the unit is started only once Databaseds
+# listens on its port, so the units ordered after it find it ready.
+[Service]
+Environment=TANGO_DS_WAIT_SECONDS={{ tango_db_ready_wait_seconds }}
+ExecStartPost=/usr/local/sbin/tango-db-wait listen {{ tango_db_port }}
+# The package's TimeoutSec=10 covers ExecStartPost= too; above the wait, so a slow start
+# ends with the helper's own message in the journal, not with systemd's timeout.
+TimeoutStartSec={{ tango_db_ready_timeout_sec }}
